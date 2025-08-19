@@ -237,10 +237,11 @@ Use `/add` for full control over:
                 return REMINDER_START_TIME
             elif data == 'freq_custom':
                 await query.edit_message_text(
-                    "Please enter custom frequency:\n"
+                    "Please enter custom frequency:\n" 
                     "Examples: 'every 45 minutes', 'every 3 hours'"
                 )
                 return REMINDER_FREQUENCY
+        return REMINDER_FREQUENCY
     
     async def handle_custom_frequency(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle custom frequency input"""
@@ -288,7 +289,7 @@ Use `/add` for full control over:
             ]
             
             await query.edit_message_text(
-                "📈 Enable escalation?\n\n"
+                "📈 Enable escalation?\n\n" 
                 "Escalation makes reminders more frequent as the deadline approaches.",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
@@ -296,10 +297,11 @@ Use `/add` for full control over:
             
         elif query.data == "hours_custom":
             await query.edit_message_text(
-                "Please enter the start time for reminders (24-hour format):\n"
+                "Please enter the start time for reminders (24-hour format):\n" 
                 "Example: 09:00"
             )
             return REMINDER_START_TIME
+        return REMINDER_START_TIME
     
     async def handle_start_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle start time input"""
