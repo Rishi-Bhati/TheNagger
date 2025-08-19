@@ -13,7 +13,7 @@ from telegram.ext import (
     ContextTypes
 )
 
-from config import TELEGRAM_BOT_TOKEN, DATABASE_NAME
+from config import TELEGRAM_BOT_TOKEN, DATABASE_URL
 from database import Database
 from reminder_scheduler import ReminderScheduler
 from utils import (
@@ -41,7 +41,7 @@ EDIT_CHOICE, EDIT_VALUE = range(7, 9)
 
 class ReminderBot:
     def __init__(self):
-        self.db = Database(DATABASE_NAME)
+        self.db = Database(DATABASE_URL)
         self.application = None
         self.scheduler = None
         

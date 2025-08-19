@@ -9,7 +9,7 @@ A persistent Telegram reminder bot that keeps nagging you until you complete you
 - ⏰ **Flexible Scheduling**: Set reminders every X minutes/hours or daily
 - 📈 **Smart Escalation**: Reminders become more frequent near deadlines
 - 🌙 **Quiet Hours**: Set active hours to avoid night-time reminders
-- 💾 **Persistent Storage**: Tasks survive bot restarts (SQLite database)
+- 💾 **Persistent Storage**: Tasks survive bot restarts (PostgreSQL database)
 - 💬 **Custom Messages**: Set different reminder messages for variety
 - 🎯 **Easy Commands**: Simple command interface for all operations
 
@@ -24,6 +24,12 @@ A persistent Telegram reminder bot that keeps nagging you until you complete you
 - `/test<task_id>` - Send a test reminder
 - `/help` - Show detailed help
 
+## Prerequisites
+
+- Python 3.8 or higher
+- A Telegram Bot Token (get one from [@BotFather](https://t.me/botfather))
+- PostgreSQL database (local or cloud-hosted)
+
 ## Installation
 
 1. **Clone the repository**
@@ -37,11 +43,29 @@ A persistent Telegram reminder bot that keeps nagging you until you complete you
    pip install -r requirements.txt
    ```
 
-3. **Set up environment variables**
-   - The `.env` file is already created with your bot token
-   - To use a different token, edit the `.env` file
+3. **Set up PostgreSQL Database**
+   
+   **Option A: Local PostgreSQL**
+   ```bash
+   # Install PostgreSQL if not already installed
+   # Create a database
+   createdb nagger_bot
+   ```
+   
+   **Option B: Cloud PostgreSQL**
+   - Use services like Heroku Postgres, Railway, Supabase, or Neon
+   - They provide a DATABASE_URL automatically
 
-4. **Run the bot**
+4. **Set up environment variables**
+   - Copy `.env.example` to `.env`
+   - Add your Telegram bot token
+   - Add your PostgreSQL DATABASE_URL:
+     ```
+     TELEGRAM_BOT_TOKEN=your_bot_token_here
+     DATABASE_URL=postgresql://user:password@localhost:5432/nagger_bot
+     ```
+
+5. **Run the bot**
    ```bash
    python reminder_bot.py
    ```
@@ -132,12 +156,28 @@ docker run -d --name nagger-bot --restart always nagger-bot
 
 ## Database
 
-The bot uses SQLite for persistent storage. The database file `reminders.db` is created automatically on first run.
+The bot uses PostgreSQL for persistent storage. The database tables are created automatically on first run.
 
 ### Database Schema
-- **tasks**: Stores task information
-- **reminders**: Stores reminder configurations
-- **reminder_history**: Tracks sent reminders
+- **tasks**: Stores task information (id, user_id, title, description, deadline, completed status)
+- **reminders**: Stores reminder configurations (frequency, active hours, escalation settings)
+- **reminder_history**: Tracks sent reminders for each task
+
+### PostgreSQL Setup Options
+
+1. **Local PostgreSQL**:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt install postgresql
+   sudo -u postgres createuser --interactive
+   sudo -u postgres createdb nagger_bot
+   ```
+
+2. **Cloud PostgreSQL Services** (Recommended for hosting):
+   - **Railway**: Auto-provisions PostgreSQL with DATABASE_URL
+   - **Heroku**: Add Heroku Postgres addon
+   - **Supabase**: Free tier available with connection pooling
+   - **Neon**: Serverless PostgreSQL with generous free tier
 
 ## Customization
 
@@ -159,7 +199,14 @@ MAX_ESCALATION_FREQUENCY = 5    # minimum minutes between escalated reminders
 
 1. **Bot not responding**: Check if the token in `.env` is correct
 2. **Reminders not sending**: Ensure the bot is running continuously
-3. **Database errors**: Delete `reminders.db` to reset (will lose all tasks)
+3. **Database connection errors**: 
+   - Check if PostgreSQL is running
+   - Verify DATABASE_URL format is correct
+   - Ensure database exists and user has permissions
+4. **psycopg2 installation issues**:
+   - On Ubuntu/Debian: `sudo apt-get install libpq-dev python3-dev`
+   - On macOS: `brew install postgresql`
+   - Or use `psycopg2-binary` in requirements.txt (already included)
 
 ## Security Notes
 

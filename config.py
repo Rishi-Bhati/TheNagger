@@ -8,7 +8,10 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 # Database configuration
-DATABASE_NAME = 'reminders.db'
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    # Fallback for local development
+    DATABASE_URL = 'postgresql://user:password@localhost:5432/nagger_bot'
 
 # Timezone configuration
 DEFAULT_TIMEZONE = 'UTC'

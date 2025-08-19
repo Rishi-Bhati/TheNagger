@@ -9,7 +9,7 @@ from telegram.error import TelegramError
 
 from database import Database
 from models import Task, Reminder, FrequencyType
-from config import DATABASE_NAME, MAX_ESCALATION_FREQUENCY
+from config import MAX_ESCALATION_FREQUENCY
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class ReminderScheduler:
         try:
             # Create Task and Reminder objects
             task = Task(
-                id=reminder_data['id'],
+                id=reminder_data['task_id'],
                 user_id=reminder_data['user_id'],
                 title=reminder_data['title'],
                 description=reminder_data['description'],
@@ -64,8 +64,8 @@ class ReminderScheduler:
             )
             
             reminder = Reminder(
-                id=reminder_data['id'],  # This might need adjustment based on actual DB schema
-                task_id=task.id,
+                id=reminder_data['reminder_id'],
+                task_id=reminder_data['task_id'],
                 frequency_type=FrequencyType(reminder_data['frequency_type']),
                 frequency_value=reminder_data['frequency_value'],
                 start_time=reminder_data.get('start_time'),
