@@ -380,7 +380,7 @@ Use `/add` for full control over:
         
         # Send confirmation
         task = self.db.get_task_by_id(task_id)
-        deadline_str = datetime.fromisoformat(task['deadline']).strftime("%Y-%m-%d %H:%M")
+        deadline_str = task['deadline'].strftime("%Y-%m-%d %H:%M")
         
         confirmation = f"""
 ✅ *Task Created Successfully!*

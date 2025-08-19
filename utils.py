@@ -141,7 +141,7 @@ def format_task_list(tasks: List[Dict]) -> str:
     message = "📋 *Your Active Tasks:*\n\n"
     
     for i, task in enumerate(tasks, 1):
-        deadline = datetime.fromisoformat(task['deadline'])
+        deadline = task['deadline']
         status = "✅ Completed" if task['completed'] else get_task_status(deadline)
         
         message += f"{i}. *{task['title']}*\n"

@@ -58,8 +58,8 @@ class ReminderScheduler:
                 user_id=reminder_data['user_id'],
                 title=reminder_data['title'],
                 description=reminder_data['description'],
-                deadline=datetime.fromisoformat(reminder_data['deadline']),
-                created_at=datetime.fromisoformat(reminder_data['created_at']),
+                deadline=reminder_data['deadline'],
+                created_at=reminder_data['created_at'],
                 completed=bool(reminder_data['completed'])
             )
             
@@ -73,7 +73,7 @@ class ReminderScheduler:
                 escalation_enabled=bool(reminder_data.get('escalation_enabled', False)),
                 escalation_threshold=reminder_data.get('escalation_threshold', 60),
                 custom_messages=reminder_data.get('custom_messages'),
-                last_sent=datetime.fromisoformat(reminder_data['last_sent']) if reminder_data.get('last_sent') else None
+                last_sent=reminder_data.get('last_sent')
             )
             
             # Check if reminder should be sent
@@ -174,8 +174,8 @@ class ReminderScheduler:
                 user_id=task_data['user_id'],
                 title=task_data['title'],
                 description=task_data['description'],
-                deadline=datetime.fromisoformat(task_data['deadline']),
-                created_at=datetime.fromisoformat(task_data['created_at']),
+                deadline=task_data['deadline'],
+                created_at=task_data['created_at'],
                 completed=bool(task_data['completed'])
             )
             
