@@ -2,6 +2,7 @@
 import logging
 import asyncio
 from datetime import datetime, timedelta
+from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -16,6 +17,7 @@ from telegram.ext import (
 from config import TELEGRAM_BOT_TOKEN, DATABASE_URL
 from database import Database
 from reminder_scheduler import ReminderScheduler
+from web_server import run_health_server
 from utils import (
     parse_datetime,
     parse_frequency,
@@ -717,6 +719,12 @@ Task ID: `{task_id}`
 
 def main():
     """Main function"""
+    # Start the health check web server in a separate thread
+    web_thread = Thread(target=run_health_server, daemon=True)
+    web_thread.start()
+    logger.info("Started health check web server")
+    
+    # Start the bot
     bot = ReminderBot()
     bot.run()
 

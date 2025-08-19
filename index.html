@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nagger Bot - Smart Telegram Reminder Bot</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #0088cc;
+            text-align: center;
+        }
+        .bot-link {
+            display: inline-block;
+            background-color: #0088cc;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: bold;
+            margin: 20px 0;
+            transition: background-color 0.3s;
+        }
+        .bot-link:hover {
+            background-color: #006699;
+        }
+        .features {
+            margin: 30px 0;
+        }
+        .feature {
+            margin: 15px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+        .feature:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #0088cc;
+            font-weight: bold;
+        }
+        .commands {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .command {
+            font-family: monospace;
+            background-color: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .status {
+            text-align: center;
+            padding: 10px;
+            background-color: #d4edda;
+            color: #155724;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔔 Nagger Bot</h1>
+        <p style="text-align: center; font-size: 1.2em;">Your Personal Telegram Reminder Assistant</p>
+        
+        <div class="status">
+            ✅ Bot is running and ready to use!
+        </div>
+        
+        <div style="text-align: center;">
+            <a href="https://t.me/Naggering_Bot" class="bot-link">Start Using Nagger Bot</a>
+        </div>
+        
+        <div class="features">
+            <h2>Features</h2>
+            <div class="feature">Persistent reminders that keep nagging until tasks are completed</div>
+            <div class="feature">Quick task creation with simple commands</div>
+            <div class="feature">Customizable reminder frequencies (every X minutes/hours)</div>
+            <div class="feature">Smart escalation - reminders get more frequent near deadlines</div>
+            <div class="feature">Quiet hours support (no reminders during sleep time)</div>
+            <div class="feature">Multiple simultaneous tasks with individual settings</div>
+            <div class="feature">PostgreSQL database for reliable persistent storage</div>
+        </div>
+        
+        <div class="commands">
+            <h3>Quick Start Commands</h3>
+            <p><span class="command">/start</span> - Start the bot and see welcome message</p>
+            <p><span class="command">/q Buy milk | in 2 hours | 30m</span> - Quick add a task</p>
+            <p><span class="command">/list</span> - View all your active tasks</p>
+            <p><span class="command">/done5</span> - Mark task #5 as completed</p>
+            <p><span class="command">/help</span> - See all available commands</p>
+        </div>
+        
+        <div style="text-align: center; margin-top: 40px;">
+            <p>Ready to never forget a task again?</p>
+            <a href="https://t.me/Naggering_Bot" class="bot-link">Open in Telegram</a>
+        </div>
+    </div>
+</body>
+</html>

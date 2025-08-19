@@ -52,14 +52,27 @@ class ReminderScheduler:
     async def _process_reminder(self, reminder_data: Dict):
         """Process a single reminder"""
         try:
+            # Handle datetime fields - PostgreSQL returns datetime objects directly
+            deadline = reminder_data['deadline']
+            if isinstance(deadline, str):
+                deadline = datetime.fromisoformat(deadline)
+            
+            created_at = reminder_data['created_at']
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+            
+            last_sent = reminder_data.get('last_sent')
+            if last_sent and isinstance(last_sent, str):
+                last_sent = datetime.fromisoformat(last_sent)
+            
             # Create Task and Reminder objects
             task = Task(
                 id=reminder_data['task_id'],
                 user_id=reminder_data['user_id'],
                 title=reminder_data['title'],
                 description=reminder_data['description'],
-                deadline=reminder_data['deadline'],
-                created_at=reminder_data['created_at'],
+                deadline=deadline,
+                created_at=created_at,
                 completed=bool(reminder_data['completed'])
             )
             
@@ -73,7 +86,7 @@ class ReminderScheduler:
                 escalation_enabled=bool(reminder_data.get('escalation_enabled', False)),
                 escalation_threshold=reminder_data.get('escalation_threshold', 60),
                 custom_messages=reminder_data.get('custom_messages'),
-                last_sent=reminder_data.get('last_sent')
+                last_sent=last_sent
             )
             
             # Check if reminder should be sent
