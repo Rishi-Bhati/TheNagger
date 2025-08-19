@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: nagger-bot
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python reminder_bot.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
