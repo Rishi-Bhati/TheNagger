@@ -154,22 +154,26 @@ class ReminderScheduler:
         except Exception as e:
             logger.error(f"Error sending reminder: {e}")
     
-    def schedule_task_reminders(self, task_id: int):
+    def schedule_task_reminders(self, user_id: int, user_task_id: int):
         """Schedule reminders for a specific task"""
+        logger.info(f"Scheduling reminders for user {user_id}, task {user_task_id}")
         try:
-            task_data = self.db.get_task_by_id(task_id)
+            task_data = self.db.get_task_by_id(user_id, user_task_id)
             if not task_data or not task_data['reminders']:
                 return
             
+            actual_task_id = task_data['id']
+            
             # Remove existing job if any
-            if task_id in self.active_jobs:
-                self.scheduler.remove_job(self.active_jobs[task_id])
+            if actual_task_id in self.active_jobs:
+                self.scheduler.remove_job(self.active_jobs[actual_task_id])
             
             # For now, we rely on the main check_and_send_reminders
             # In a more advanced implementation, we could schedule individual jobs
             
+            logger.info(f"Successfully scheduled reminders for user {user_id}, task {user_task_id}")
         except Exception as e:
-            logger.error(f"Error scheduling reminders for task {task_id}: {e}")
+            logger.error(f"Error scheduling reminders for task {user_task_id}: {e}")
     
     def cancel_task_reminders(self, task_id: int):
         """Cancel reminders for a specific task"""
@@ -181,10 +185,10 @@ class ReminderScheduler:
             except Exception as e:
                 logger.error(f"Error cancelling reminders for task {task_id}: {e}")
     
-    async def send_test_reminder(self, user_id: int, task_id: int):
+    async def send_test_reminder(self, user_id: int, user_task_id: int):
         """Send a test reminder for a task"""
         try:
-            task_data = self.db.get_task_by_id(task_id)
+            task_data = self.db.get_task_by_id(user_id, user_task_id)
             if not task_data:
                 await self.bot.send_message(
                     chat_id=user_id,

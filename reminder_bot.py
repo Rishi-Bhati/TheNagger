@@ -386,7 +386,7 @@ Use `/add` for full control over:
         )
         
         # Schedule reminders
-        self.scheduler.schedule_task_reminders(actual_task_id)
+        self.scheduler.schedule_task_reminders(user_id, user_task_id)
         
         # Send confirmation
         task = self.db.get_task_by_id(user_id, user_task_id)
@@ -698,7 +698,7 @@ Use `/test {user_task_id}` to send a test reminder.
         )
         
         # Schedule reminders
-        self.scheduler.schedule_task_reminders(actual_task_id)
+        self.scheduler.schedule_task_reminders(user_id, user_task_id)
         
         # Send confirmation
         deadline_formatted = deadline.strftime("%Y-%m-%d %H:%M")

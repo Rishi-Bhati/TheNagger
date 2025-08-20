@@ -223,6 +223,7 @@ class Database:
     
     def get_task_by_id(self, user_id: int, user_task_id: int) -> Optional[Dict]:
         """Get a specific task by its user-facing ID."""
+        logger.info(f"Getting task for user {user_id}, user_task_id {user_task_id}")
         actual_task_id = self.get_actual_task_id(user_id, user_task_id)
         if not actual_task_id:
             return None
@@ -263,6 +264,7 @@ class Database:
     
     def update_task(self, actual_task_id: int, **kwargs) -> bool:
         """Update task fields using the actual task ID."""
+        logger.info(f"Updating task with actual_task_id {actual_task_id}")
         conn = self.get_connection()
         cursor = conn.cursor()
         
@@ -297,6 +299,7 @@ class Database:
     
     def delete_task(self, actual_task_id: int) -> bool:
         """Delete a task and its reminders using the actual task ID."""
+        logger.info(f"Deleting task with actual_task_id {actual_task_id}")
         conn = self.get_connection()
         cursor = conn.cursor()
         
