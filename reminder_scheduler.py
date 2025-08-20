@@ -65,6 +65,16 @@ class ReminderScheduler:
             if last_sent and isinstance(last_sent, str):
                 last_sent = datetime.fromisoformat(last_sent)
             
+            # Handle time fields - PostgreSQL returns time objects
+            start_time = reminder_data.get('start_time')
+            end_time = reminder_data.get('end_time')
+            
+            # Convert datetime.time objects to string format "HH:MM"
+            if start_time and hasattr(start_time, 'strftime'):
+                start_time = start_time.strftime('%H:%M')
+            if end_time and hasattr(end_time, 'strftime'):
+                end_time = end_time.strftime('%H:%M')
+            
             # Create Task and Reminder objects
             task = Task(
                 id=reminder_data['task_id'],
@@ -81,8 +91,8 @@ class ReminderScheduler:
                 task_id=reminder_data['task_id'],
                 frequency_type=FrequencyType(reminder_data['frequency_type']),
                 frequency_value=reminder_data['frequency_value'],
-                start_time=reminder_data.get('start_time'),
-                end_time=reminder_data.get('end_time'),
+                start_time=start_time,
+                end_time=end_time,
                 escalation_enabled=bool(reminder_data.get('escalation_enabled', False)),
                 escalation_threshold=reminder_data.get('escalation_threshold', 60),
                 custom_messages=reminder_data.get('custom_messages'),
@@ -194,13 +204,24 @@ class ReminderScheduler:
             
             if task_data['reminders']:
                 reminder_data = task_data['reminders'][0]
+                
+                # Handle time fields - PostgreSQL returns time objects
+                start_time = reminder_data.get('start_time')
+                end_time = reminder_data.get('end_time')
+                
+                # Convert datetime.time objects to string format "HH:MM"
+                if start_time and hasattr(start_time, 'strftime'):
+                    start_time = start_time.strftime('%H:%M')
+                if end_time and hasattr(end_time, 'strftime'):
+                    end_time = end_time.strftime('%H:%M')
+                
                 reminder = Reminder(
                     id=reminder_data['id'],
                     task_id=task.id,
                     frequency_type=FrequencyType(reminder_data['frequency_type']),
                     frequency_value=reminder_data['frequency_value'],
-                    start_time=reminder_data.get('start_time'),
-                    end_time=reminder_data.get('end_time'),
+                    start_time=start_time,
+                    end_time=end_time,
                     escalation_enabled=bool(reminder_data.get('escalation_enabled', False)),
                     escalation_threshold=reminder_data.get('escalation_threshold', 60),
                     custom_messages=reminder_data.get('custom_messages')

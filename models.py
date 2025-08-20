@@ -130,8 +130,21 @@ class Reminder:
     
     def _is_within_active_hours(self, current_time: str) -> bool:
         """Check if current time is within active hours"""
-        start_hour, start_min = map(int, self.start_time.split(':'))
-        end_hour, end_min = map(int, self.end_time.split(':'))
+        # Handle both string and datetime.time objects for start_time and end_time
+        if hasattr(self.start_time, 'hour'):
+            # It's a datetime.time object
+            start_hour, start_min = self.start_time.hour, self.start_time.minute
+        else:
+            # It's a string
+            start_hour, start_min = map(int, self.start_time.split(':'))
+        
+        if hasattr(self.end_time, 'hour'):
+            # It's a datetime.time object
+            end_hour, end_min = self.end_time.hour, self.end_time.minute
+        else:
+            # It's a string
+            end_hour, end_min = map(int, self.end_time.split(':'))
+        
         curr_hour, curr_min = map(int, current_time.split(':'))
         
         start_minutes = start_hour * 60 + start_min
