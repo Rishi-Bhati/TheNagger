@@ -67,6 +67,7 @@ I'm your personal reminder assistant that will keep nagging you until you comple
 • 📋 `/list` - View all your active tasks
 • ✅ `/done` - Mark a task as completed
 • 🗑️ `/delete` - Delete a task
+• 🧹 `/clear` - Clear all tasks and start fresh
 • ❓ `/help` - Show detailed help
 
 *Quick Start Example:*
@@ -93,6 +94,7 @@ Type `/help` for more examples or `/q` to quickly add your first task.
 • `/delete <task_id>` - Delete a task
 • `/done <task_id>` - Mark task as completed
 • `/test <task_id>` - Send a test reminder
+• `/clear` - Clear all tasks and reset IDs
 
 *Quick Add (NEW!):*
 `/q <title> | <deadline> | <frequency>`
@@ -122,9 +124,10 @@ Use `/add` for full control over:
 • Specific: `2024-12-25 15:30`
 
 *Tips:*
-• Use `/done<task_id>` (e.g., `/done5`) for quick completion
+• Use `/done <task_id>` (e.g., `/done 5`) for quick completion
 • Default reminder hours: 8 AM - 10 PM
 • Escalation enabled by default for quick tasks
+• Use `/clear` to reset all tasks and start fresh
         """
         
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -396,8 +399,8 @@ Use `/add` for full control over:
 📈 *Escalation:* {'Enabled' if escalation_enabled else 'Disabled'}
 
 Your task ID is: `{task_id}`
-Use `/done{task_id}` to mark it as complete.
-Use `/test{task_id}` to send a test reminder.
+Use `/done {task_id}` to mark it as complete.
+Use `/test {task_id}` to send a test reminder.
         """
         
         await query.edit_message_text(confirmation, parse_mode='Markdown')
@@ -434,13 +437,13 @@ Use `/test{task_id}` to send a test reminder.
             else:
                 await update.message.reply_text(
                     "❌ Please specify a task ID.\n"
-                    "Example: `/done5`"
+                    "Example: `/done 5`"
                 )
                 return
         except ValueError:
             await update.message.reply_text(
                 "❌ Invalid task ID format.\n"
-                "Example: `/done5`"
+                "Example: `/done 5`"
             )
             return
         
@@ -524,7 +527,7 @@ Use `/test{task_id}` to send a test reminder.
             else:
                 await update.message.reply_text(
                     "❌ Please specify a task ID.\n"
-                    "Example: `/test5`"
+                    "Example: `/test 5`"
                 )
                 return
         except ValueError:
@@ -532,6 +535,69 @@ Use `/test{task_id}` to send a test reminder.
             return
         
         await self.scheduler.send_test_reminder(user_id, task_id)
+    
+    async def clear_all(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Clear all tasks for the user and reset their data"""
+        user_id = update.effective_user.id
+        
+        # Ask for confirmation
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Yes, clear all", callback_data=f"clear_confirm_{user_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data="clear_cancel")
+            ]
+        ]
+        
+        await update.message.reply_text(
+            "⚠️ *Warning!*\n\n"
+            "This will delete ALL your tasks and reminders permanently.\n"
+            "Are you sure you want to continue?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    async def handle_clear_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle clear confirmation callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data.startswith("clear_confirm_"):
+            user_id = int(query.data.split("_")[2])
+            
+            # Use the new clear method that handles sequence reset
+            try:
+                task_count, sequences_reset = self.db.clear_all_user_data(user_id)
+                
+                # Cancel all reminders for this user
+                tasks = self.db.get_user_tasks(user_id, include_completed=True)
+                for task in tasks:
+                    self.scheduler.cancel_task_reminders(task['id'])
+                
+                # Build response message
+                message = f"🗑️ *All Clear!*\n\n"
+                message += f"Deleted {task_count} tasks and their reminders.\n"
+                
+                if sequences_reset:
+                    message += "✨ Database IDs have been reset - new tasks will start from ID 1!\n\n"
+                else:
+                    message += "Your task list is now empty.\n\n"
+                
+                message += "Use `/add` or `/q` to create new tasks!"
+                
+                await query.edit_message_text(message, parse_mode='Markdown')
+                
+            except Exception as e:
+                logger.error(f"Error clearing user data: {e}")
+                await query.edit_message_text(
+                    "❌ An error occurred while clearing your data. Please try again.",
+                    parse_mode='Markdown'
+                )
+            
+        else:  # clear_cancel
+            await query.edit_message_text(
+                "❌ Clear operation cancelled.\n"
+                "Your tasks remain unchanged."
+            )
     
     async def quick_add(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Quick add a task with single command"""
@@ -649,8 +715,8 @@ Use `/test{task_id}` to send a test reminder.
 📈 *Escalation:* Enabled
 
 Task ID: `{task_id}`
-• Mark complete: `/done{task_id}`
-• Test reminder: `/test{task_id}`
+• Mark complete: `/done {task_id}`
+• Test reminder: `/test {task_id}`
 • View all tasks: `/list`
         """
         
@@ -709,6 +775,10 @@ Task ID: `{task_id}`
         self.application.add_handler(CommandHandler("done", self.mark_done))
         self.application.add_handler(CommandHandler("delete", self.delete_task))
         self.application.add_handler(CommandHandler("test", self.test_reminder))
+        self.application.add_handler(CommandHandler("clear", self.clear_all))
+        
+        # Add callback handler for clear confirmation
+        self.application.add_handler(CallbackQueryHandler(self.handle_clear_callback, pattern="^clear_"))
         
         # Add error handler
         self.application.add_error_handler(self.error_handler)

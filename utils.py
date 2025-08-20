@@ -155,7 +155,7 @@ def format_task_list(tasks: List[Dict]) -> str:
             freq_text = format_frequency(reminder['frequency_type'], reminder['frequency_value'])
             message += f"   🔔 Reminder: {freq_text}\n"
         
-        message += f"   🆔 ID: `/done{task['id']}` to complete\n\n"
+        message += f"   🆔 ID: `/done {task['id']}` to complete\n\n"
     
     return message
 

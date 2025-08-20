@@ -197,7 +197,7 @@ class Reminder:
                     message_index = hash(str(self.last_sent)) % len(self.custom_messages)
                 
                 custom_text = self.custom_messages[message_index]
-                return f"🔔 *Reminder*: {task.title}\n\n{custom_text}\n\n⏰ Deadline: {task.deadline.strftime('%Y-%m-%d %H:%M')}\n\n_Reply /done{task.id} to mark as complete_"
+                return f"🔔 *Reminder*: {task.title}\n\n{custom_text}\n\n⏰ Deadline: {task.deadline.strftime('%Y-%m-%d %H:%M')}\n\n_Reply /done {task.id} to mark as complete_"
             else:
                 return REMINDER_TEMPLATE.format(
                     title=task.title,

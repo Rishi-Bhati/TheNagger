@@ -401,3 +401,45 @@ class Database:
         finally:
             cursor.close()
             conn.close()
+    
+    def clear_all_user_data(self, user_id: int) -> Tuple[int, bool]:
+        """Clear all data for a user and optionally reset sequences"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Count tasks before deletion
+            cursor.execute('SELECT COUNT(*) FROM tasks WHERE user_id = %s', (user_id,))
+            task_count = cursor.fetchone()[0]
+            
+            # Delete all tasks for the user (cascades to reminders and history)
+            cursor.execute('DELETE FROM tasks WHERE user_id = %s', (user_id,))
+            
+            # Check if there are any tasks left in the database
+            cursor.execute('SELECT COUNT(*) FROM tasks')
+            total_tasks = cursor.fetchone()[0]
+            
+            # If no tasks remain, we can safely reset sequences
+            sequences_reset = False
+            if total_tasks == 0:
+                try:
+                    # Reset all sequences to 1
+                    cursor.execute('ALTER SEQUENCE tasks_id_seq RESTART WITH 1')
+                    cursor.execute('ALTER SEQUENCE reminders_id_seq RESTART WITH 1')
+                    cursor.execute('ALTER SEQUENCE reminder_history_id_seq RESTART WITH 1')
+                    sequences_reset = True
+                    logger.info("Database sequences reset to 1")
+                except Exception as e:
+                    # Sequence reset is optional, don't fail the operation
+                    logger.warning(f"Could not reset sequences: {e}")
+            
+            conn.commit()
+            return task_count, sequences_reset
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error clearing user data: {e}")
+            raise
+        finally:
+            cursor.close()
+            conn.close()
