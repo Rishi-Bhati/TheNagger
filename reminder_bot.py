@@ -94,7 +94,7 @@ Type `/help` for more examples or `/q` to quickly add your first task.
 • `/delete <task_id>` - Delete a task
 • `/done <task_id>` - Mark task as completed
 • `/test <task_id>` - Send a test reminder
-• `/clear` - Clear all tasks and reset IDs
+• `/clear` - Clear all your tasks (fresh start)
 
 *Quick Add (NEW!):*
 `/q <title> | <deadline> | <frequency>`
@@ -194,14 +194,14 @@ Use `/add` for full control over:
         
         # Create the task
         user_id = update.effective_user.id
-        task_id = self.db.add_task(
+        user_task_id = self.db.add_task(
             user_id=user_id,
             title=context.user_data['task_title'],
             description=context.user_data['task_description'],
             deadline=deadline
         )
         
-        context.user_data['task_id'] = task_id
+        context.user_data['user_task_id'] = user_task_id
         
         # Ask for reminder frequency
         await update.message.reply_text(
@@ -371,9 +371,11 @@ Use `/add` for full control over:
         escalation_enabled = query.data == "escalation_yes"
         
         # Add reminder to database
-        task_id = context.user_data['task_id']
+        user_task_id = context.user_data['user_task_id']
+        actual_task_id = self.db.get_actual_task_id(user_id, user_task_id)
+        
         self.db.add_reminder(
-            task_id=task_id,
+            task_id=actual_task_id,
             frequency_type=context.user_data['reminder_frequency_type'],
             frequency_value=context.user_data['reminder_frequency_value'],
             start_time=context.user_data.get('reminder_start_time'),
@@ -383,10 +385,10 @@ Use `/add` for full control over:
         )
         
         # Schedule reminders
-        self.scheduler.schedule_task_reminders(task_id)
+        self.scheduler.schedule_task_reminders(actual_task_id)
         
         # Send confirmation
-        task = self.db.get_task_by_id(task_id)
+        task = self.db.get_task_by_id(user_id, user_task_id)
         deadline_str = task['deadline'].strftime("%Y-%m-%d %H:%M")
         
         confirmation = f"""
@@ -398,9 +400,9 @@ Use `/add` for full control over:
 🔔 *Reminder:* Every {context.user_data['reminder_frequency_value']} {context.user_data['reminder_frequency_type']}
 📈 *Escalation:* {'Enabled' if escalation_enabled else 'Disabled'}
 
-Your task ID is: `{task_id}`
-Use `/done {task_id}` to mark it as complete.
-Use `/test {task_id}` to send a test reminder.
+Your task ID is: `{user_task_id}`
+Use `/done {user_task_id}` to mark it as complete.
+Use `/test {user_task_id}` to send a test reminder.
         """
         
         await query.edit_message_text(confirmation, parse_mode='Markdown')
@@ -433,22 +435,22 @@ Use `/test {task_id}` to send a test reminder.
         text = update.message.text
         try:
             if text.startswith('/done'):
-                task_id = int(text[5:])
+                user_task_id = int(text[5:])
             else:
                 await update.message.reply_text(
                     "❌ Please specify a task ID.\n"
-                    "Example: `/done 5`"
+                    "Example: `/done5`"
                 )
                 return
         except ValueError:
             await update.message.reply_text(
                 "❌ Invalid task ID format.\n"
-                "Example: `/done 5`"
+                "Example: `/done5`"
             )
             return
         
         # Get task
-        task = self.db.get_task_by_id(task_id)
+        task = self.db.get_task_by_id(user_id, user_task_id)
         if not task:
             await update.message.reply_text("❌ Task not found.")
             return
@@ -463,13 +465,13 @@ Use `/test {task_id}` to send a test reminder.
         
         # Mark as completed
         self.db.update_task(
-            task_id=task_id,
+            actual_task_id=task['id'],
             completed=True,
             completed_at=datetime.now()
         )
         
         # Cancel reminders
-        self.scheduler.cancel_task_reminders(task_id)
+        self.scheduler.cancel_task_reminders(task['id'])
         
         await update.message.reply_text(
             f"✅ Task *{escape_markdown(task['title'])}* marked as completed!\n\n"
@@ -491,13 +493,13 @@ Use `/test {task_id}` to send a test reminder.
             return
         
         try:
-            task_id = int(text[1])
+            user_task_id = int(text[1])
         except ValueError:
             await update.message.reply_text("❌ Invalid task ID.")
             return
         
         # Get task
-        task = self.db.get_task_by_id(task_id)
+        task = self.db.get_task_by_id(user_id, user_task_id)
         if not task:
             await update.message.reply_text("❌ Task not found.")
             return
@@ -507,8 +509,8 @@ Use `/test {task_id}` to send a test reminder.
             return
         
         # Delete task
-        self.db.delete_task(task_id)
-        self.scheduler.cancel_task_reminders(task_id)
+        self.db.delete_task(task['id'])
+        self.scheduler.cancel_task_reminders(task['id'])
         
         await update.message.reply_text(
             f"🗑️ Task *{escape_markdown(task['title'])}* has been deleted.",
@@ -523,18 +525,23 @@ Use `/test {task_id}` to send a test reminder.
         text = update.message.text
         try:
             if text.startswith('/test'):
-                task_id = int(text[5:])
+                user_task_id = int(text[5:])
             else:
                 await update.message.reply_text(
                     "❌ Please specify a task ID.\n"
-                    "Example: `/test 5`"
+                    "Example: `/test5`"
                 )
                 return
         except ValueError:
             await update.message.reply_text("❌ Invalid task ID.")
             return
         
-        await self.scheduler.send_test_reminder(user_id, task_id)
+        actual_task_id = self.db.get_actual_task_id(user_id, user_task_id)
+        if not actual_task_id:
+            await update.message.reply_text("❌ Task not found.")
+            return
+            
+        await self.scheduler.send_test_reminder(user_id, actual_task_id)
     
     async def clear_all(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Clear all tasks for the user and reset their data"""
@@ -564,24 +571,13 @@ Use `/test {task_id}` to send a test reminder.
         if query.data.startswith("clear_confirm_"):
             user_id = int(query.data.split("_")[2])
             
-            # Use the new clear method that handles sequence reset
+            # Use the new clear method
             try:
-                task_count, sequences_reset = self.db.clear_all_user_data(user_id)
+                task_count = self.db.clear_all_user_data(user_id)
                 
-                # Cancel all reminders for this user
-                tasks = self.db.get_user_tasks(user_id, include_completed=True)
-                for task in tasks:
-                    self.scheduler.cancel_task_reminders(task['id'])
-                
-                # Build response message
                 message = f"🗑️ *All Clear!*\n\n"
                 message += f"Deleted {task_count} tasks and their reminders.\n"
-                
-                if sequences_reset:
-                    message += "✨ Database IDs have been reset - new tasks will start from ID 1!\n\n"
-                else:
-                    message += "Your task list is now empty.\n\n"
-                
+                message += "Your task list is now empty, and new tasks will start from ID 1.\n\n"
                 message += "Use `/add` or `/q` to create new tasks!"
                 
                 await query.edit_message_text(message, parse_mode='Markdown')
@@ -680,16 +676,18 @@ Use `/test {task_id}` to send a test reminder.
         freq_type, freq_value = freq_result
         
         # Create the task
-        task_id = self.db.add_task(
+        user_task_id = self.db.add_task(
             user_id=user_id,
             title=title,
             description="",  # Quick add doesn't include description
             deadline=deadline
         )
         
+        actual_task_id = self.db.get_actual_task_id(user_id, user_task_id)
+        
         # Add reminder with default settings
         self.db.add_reminder(
-            task_id=task_id,
+            task_id=actual_task_id,
             frequency_type=freq_type,
             frequency_value=freq_value,
             start_time="08:00",  # Default start time
@@ -699,7 +697,7 @@ Use `/test {task_id}` to send a test reminder.
         )
         
         # Schedule reminders
-        self.scheduler.schedule_task_reminders(task_id)
+        self.scheduler.schedule_task_reminders(actual_task_id)
         
         # Send confirmation
         deadline_formatted = deadline.strftime("%Y-%m-%d %H:%M")
@@ -714,9 +712,9 @@ Use `/test {task_id}` to send a test reminder.
 ⏱️ *Active Hours:* 8 AM - 10 PM
 📈 *Escalation:* Enabled
 
-Task ID: `{task_id}`
-• Mark complete: `/done {task_id}`
-• Test reminder: `/test {task_id}`
+Task ID: `{user_task_id}`
+• Mark complete: `/done{user_task_id}`
+• Test reminder: `/test{user_task_id}`
 • View all tasks: `/list`
         """
         

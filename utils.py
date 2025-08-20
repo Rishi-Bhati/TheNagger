@@ -140,13 +140,14 @@ def format_task_list(tasks: List[Dict]) -> str:
     
     message = "📋 *Your Active Tasks:*\n\n"
     
-    for i, task in enumerate(tasks, 1):
+    for task in tasks:
+        user_task_id = task['user_task_id']
         deadline = task['deadline']
         status = "✅ Completed" if task['completed'] else get_task_status(deadline)
         
-        message += f"{i}. *{task['title']}*\n"
+        message += f"*{user_task_id}. {escape_markdown(task['title'])}*\n"
         if task['description']:
-            message += f"   📝 {task['description']}\n"
+            message += f"   📝 {escape_markdown(task['description'])}\n"
         message += f"   ⏰ Deadline: {deadline.strftime('%Y-%m-%d %H:%M')}\n"
         message += f"   📊 Status: {status}\n"
         
@@ -155,7 +156,7 @@ def format_task_list(tasks: List[Dict]) -> str:
             freq_text = format_frequency(reminder['frequency_type'], reminder['frequency_value'])
             message += f"   🔔 Reminder: {freq_text}\n"
         
-        message += f"   🆔 ID: `/done {task['id']}` to complete\n\n"
+        message += f"   _Actions: /done{user_task_id} | /test{user_task_id} | /delete {user_task_id}_\n\n"
     
     return message
 

@@ -13,6 +13,7 @@ class FrequencyType(Enum):
 @dataclass
 class Task:
     id: int
+    user_task_id: int
     user_id: int
     title: str
     description: str
@@ -57,6 +58,7 @@ class Task:
         """Convert task to dictionary"""
         return {
             'id': self.id,
+            'user_task_id': self.user_task_id,
             'user_id': self.user_id,
             'title': self.title,
             'description': self.description,

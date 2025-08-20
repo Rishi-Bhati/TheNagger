@@ -78,6 +78,7 @@ class ReminderScheduler:
             # Create Task and Reminder objects
             task = Task(
                 id=reminder_data['task_id'],
+                user_task_id=reminder_data.get('user_task_id', reminder_data['task_id']), # Fallback for safety
                 user_id=reminder_data['user_id'],
                 title=reminder_data['title'],
                 description=reminder_data['description'],
@@ -194,6 +195,7 @@ class ReminderScheduler:
             # Create task object
             task = Task(
                 id=task_data['id'],
+                user_task_id=task_data.get('user_task_id', task_data['id']), # Fallback for safety
                 user_id=task_data['user_id'],
                 title=task_data['title'],
                 description=task_data['description'],

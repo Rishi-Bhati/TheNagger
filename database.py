@@ -70,6 +70,17 @@ class Database:
                 )
             ''')
             
+            # Create user_task_id_mapping table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_task_id_mapping (
+                    user_id BIGINT NOT NULL,
+                    user_task_id INTEGER NOT NULL,
+                    actual_task_id INTEGER NOT NULL UNIQUE,
+                    PRIMARY KEY (user_id, user_task_id),
+                    FOREIGN KEY (actual_task_id) REFERENCES tasks (id) ON DELETE CASCADE
+                )
+            ''')
+            
             # Create indexes for better performance
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
@@ -98,23 +109,38 @@ class Database:
             conn.close()
     
     def add_task(self, user_id: int, title: str, description: str, deadline: datetime) -> int:
-        """Add a new task to the database"""
+        """Add a new task and create a user-specific ID mapping."""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
+            # 1. Add the task to the main tasks table
             cursor.execute('''
                 INSERT INTO tasks (user_id, title, description, deadline)
                 VALUES (%s, %s, %s, %s)
                 RETURNING id
             ''', (user_id, title, description, deadline))
+            actual_task_id = cursor.fetchone()[0]
             
-            task_id = cursor.fetchone()[0]
+            # 2. Find the next user_task_id for this user
+            cursor.execute(
+                "SELECT COALESCE(MAX(user_task_id), 0) + 1 FROM user_task_id_mapping WHERE user_id = %s",
+                (user_id,)
+            )
+            user_task_id = cursor.fetchone()[0]
+            
+            # 3. Create the mapping
+            cursor.execute('''
+                INSERT INTO user_task_id_mapping (user_id, user_task_id, actual_task_id)
+                VALUES (%s, %s, %s)
+            ''', (user_id, user_task_id, actual_task_id))
+            
             conn.commit()
-            return task_id
+            logger.info(f"Task added. UserID: {user_id}, UserTaskID: {user_task_id}, ActualTaskID: {actual_task_id}")
+            return user_task_id
         except Exception as e:
             conn.rollback()
-            logger.error(f"Error adding task: {e}")
+            logger.error(f"Error adding task with mapping: {e}")
             raise
         finally:
             cursor.close()
@@ -152,19 +178,22 @@ class Database:
             conn.close()
     
     def get_user_tasks(self, user_id: int, include_completed: bool = False) -> List[Dict]:
-        """Get all tasks for a user"""
+        """Get all tasks for a user with their user-facing IDs."""
         conn = self.get_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         try:
-            if include_completed:
-                cursor.execute('''
-                    SELECT * FROM tasks WHERE user_id = %s ORDER BY deadline
-                ''', (user_id,))
-            else:
-                cursor.execute('''
-                    SELECT * FROM tasks WHERE user_id = %s AND completed = FALSE ORDER BY deadline
-                ''', (user_id,))
+            query = '''
+                SELECT t.*, m.user_task_id
+                FROM tasks t
+                JOIN user_task_id_mapping m ON t.id = m.actual_task_id
+                WHERE t.user_id = %s
+            '''
+            if not include_completed:
+                query += " AND t.completed = FALSE"
+            query += " ORDER BY t.deadline"
+            
+            cursor.execute(query, (user_id,))
             
             tasks = []
             for row in cursor.fetchall():
@@ -192,19 +221,28 @@ class Database:
             cursor.close()
             conn.close()
     
-    def get_task_by_id(self, task_id: int) -> Optional[Dict]:
-        """Get a specific task by ID"""
+    def get_task_by_id(self, user_id: int, user_task_id: int) -> Optional[Dict]:
+        """Get a specific task by its user-facing ID."""
+        actual_task_id = self.get_actual_task_id(user_id, user_task_id)
+        if not actual_task_id:
+            return None
+            
         conn = self.get_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         try:
-            cursor.execute('SELECT * FROM tasks WHERE id = %s', (task_id,))
+            cursor.execute('''
+                SELECT t.*, m.user_task_id
+                FROM tasks t
+                JOIN user_task_id_mapping m ON t.id = m.actual_task_id
+                WHERE t.id = %s AND t.user_id = %s
+            ''', (actual_task_id, user_id))
             row = cursor.fetchone()
             
             if row:
                 task = dict(row)
                 # Get reminders
-                cursor.execute('SELECT * FROM reminders WHERE task_id = %s', (task_id,))
+                cursor.execute('SELECT * FROM reminders WHERE task_id = %s', (actual_task_id,))
                 reminders = []
                 for reminder_row in cursor.fetchall():
                     reminder = dict(reminder_row)
@@ -223,8 +261,8 @@ class Database:
             cursor.close()
             conn.close()
     
-    def update_task(self, task_id: int, **kwargs) -> bool:
-        """Update task fields"""
+    def update_task(self, actual_task_id: int, **kwargs) -> bool:
+        """Update task fields using the actual task ID."""
         conn = self.get_connection()
         cursor = conn.cursor()
         
@@ -241,7 +279,7 @@ class Database:
             if not update_fields:
                 return False
             
-            values.append(task_id)
+            values.append(actual_task_id)
             query = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = %s"
             
             cursor.execute(query, values)
@@ -257,13 +295,14 @@ class Database:
             cursor.close()
             conn.close()
     
-    def delete_task(self, task_id: int) -> bool:
-        """Delete a task and its reminders"""
+    def delete_task(self, actual_task_id: int) -> bool:
+        """Delete a task and its reminders using the actual task ID."""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
-            cursor.execute('DELETE FROM tasks WHERE id = %s', (task_id,))
+            # The mapping table will be cleared by the ON DELETE CASCADE foreign key
+            cursor.execute('DELETE FROM tasks WHERE id = %s', (actual_task_id,))
             success = cursor.rowcount > 0
             
             conn.commit()
@@ -402,44 +441,88 @@ class Database:
             cursor.close()
             conn.close()
     
-    def clear_all_user_data(self, user_id: int) -> Tuple[int, bool]:
-        """Clear all data for a user and optionally reset sequences"""
+    def clear_all_user_data(self, user_id: int) -> int:
+        """Clear all data for a user by deleting their tasks, which cascades."""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
-            # Count tasks before deletion
-            cursor.execute('SELECT COUNT(*) FROM tasks WHERE user_id = %s', (user_id,))
-            task_count = cursor.fetchone()[0]
+            # Get all actual task IDs for the user
+            cursor.execute('''
+                SELECT t.id FROM tasks t
+                JOIN user_task_id_mapping m ON t.id = m.actual_task_id
+                WHERE t.user_id = %s
+            ''', (user_id,))
             
-            # Delete all tasks for the user (cascades to reminders and history)
-            cursor.execute('DELETE FROM tasks WHERE user_id = %s', (user_id,))
+            tasks_to_delete = [row[0] for row in cursor.fetchall()]
+            count = len(tasks_to_delete)
             
-            # Check if there are any tasks left in the database
-            cursor.execute('SELECT COUNT(*) FROM tasks')
-            total_tasks = cursor.fetchone()[0]
-            
-            # If no tasks remain, we can safely reset sequences
-            sequences_reset = False
-            if total_tasks == 0:
-                try:
-                    # Reset all sequences to 1
-                    cursor.execute('ALTER SEQUENCE tasks_id_seq RESTART WITH 1')
-                    cursor.execute('ALTER SEQUENCE reminders_id_seq RESTART WITH 1')
-                    cursor.execute('ALTER SEQUENCE reminder_history_id_seq RESTART WITH 1')
-                    sequences_reset = True
-                    logger.info("Database sequences reset to 1")
-                except Exception as e:
-                    # Sequence reset is optional, don't fail the operation
-                    logger.warning(f"Could not reset sequences: {e}")
+            if count > 0:
+                # Deleting from tasks table will cascade to mapping, reminders, and history
+                cursor.execute('DELETE FROM tasks WHERE id = ANY(%s)', (tasks_to_delete,))
             
             conn.commit()
-            return task_count, sequences_reset
+            logger.info(f"Cleared {count} tasks for user {user_id}.")
+            return count
             
         except Exception as e:
             conn.rollback()
             logger.error(f"Error clearing user data: {e}")
             raise
+        finally:
+            cursor.close()
+            conn.close()
+    
+    def get_actual_task_id(self, user_id: int, user_task_id: int) -> Optional[int]:
+        """Translate a user-facing ID to an actual database ID."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(
+                "SELECT actual_task_id FROM user_task_id_mapping WHERE user_id = %s AND user_task_id = %s",
+                (user_id, user_task_id)
+            )
+            result = cursor.fetchone()
+            return result[0] if result else None
+        except Exception as e:
+            logger.error(f"Error getting actual task ID: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    
+    def reset_user_task_ids(self, user_id: int) -> bool:
+        """
+        Alternative approach: Create a user-specific task ID mapping
+        This doesn't reset the actual database sequence but provides
+        user-friendly task IDs starting from 1
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # First, check if we need to create a user_task_mapping table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_task_mapping (
+                    user_id BIGINT NOT NULL,
+                    user_task_id INTEGER NOT NULL,
+                    actual_task_id INTEGER NOT NULL,
+                    PRIMARY KEY (user_id, user_task_id),
+                    FOREIGN KEY (actual_task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # Clear existing mappings for this user
+            cursor.execute('DELETE FROM user_task_mapping WHERE user_id = %s', (user_id,))
+            
+            conn.commit()
+            return True
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error resetting user task IDs: {e}")
+            return False
         finally:
             cursor.close()
             conn.close()

@@ -1,117 +1,193 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nagger Bot - Smart Telegram Reminder Bot</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            background-color: white;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #0088cc;
-            text-align: center;
-        }
-        .bot-link {
-            display: inline-block;
-            background-color: #0088cc;
-            color: white;
-            padding: 12px 30px;
-            text-decoration: none;
-            border-radius: 25px;
-            font-weight: bold;
-            margin: 20px 0;
-            transition: background-color 0.3s;
-        }
-        .bot-link:hover {
-            background-color: #006699;
-        }
-        .features {
-            margin: 30px 0;
-        }
-        .feature {
-            margin: 15px 0;
-            padding-left: 30px;
-            position: relative;
-        }
-        .feature:before {
-            content: "✓";
-            position: absolute;
-            left: 0;
-            color: #0088cc;
-            font-weight: bold;
-        }
-        .commands {
-            background-color: #f8f9fa;
-            padding: 20px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-        .command {
-            font-family: monospace;
-            background-color: #e9ecef;
-            padding: 2px 6px;
-            border-radius: 3px;
-        }
-        .status {
-            text-align: center;
-            padding: 10px;
-            background-color: #d4edda;
-            color: #155724;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Naggering Bot — Stop Forgetting</title>
+  <meta name="description" content="A brutally effective reminder bot. Set tasks, pick how often to nag, reply 'done' to shut it up. Simple, annoying, effective." />
+
+  <!-- Open Graph / Social Preview -->
+  <meta property="og:title" content="Naggering Bot — Stop Forgetting" />
+  <meta property="og:description" content="Set reminders that actually nag you until you finish. Telegram: @Naggering_Bot" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://t.me/Naggering_Bot" />
+  <meta property="og:image" content="https://dummyimage.com/1200x630/0f172a/ffffff&text=Naggering+Bot" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='24' fill='%230f172a'/%3E%3Cpath d='M34 84c18-6 30-18 40-38l8 20 12-6-8 30c-2 7-9 12-16 12H42c-8 0-12-8-8-18z' fill='%23ffffff'/%3E%3C/svg%3E" />
+  <style>
+    :root {
+      --bg: #0b1220;         /* deep navy */
+      --fg: #e5e7eb;         /* gray-200 */
+      --muted: #9aa3b2;      /* slate-400 */
+      --primary: #22d3ee;    /* cyan-400 */
+      --accent: #a78bfa;     /* violet-400 */
+      --card: rgba(255,255,255,0.06);
+      --card-border: rgba(255,255,255,0.12);
+      --shadow: 0 10px 30px rgba(0,0,0,.45);
+      --radius: 18px;
+      --maxw: 1100px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, 'Helvetica Neue', Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
+      background: radial-gradient(1200px 800px at 20% -10%, rgba(34,211,238,.15), transparent 60%),
+                  radial-gradient(900px 700px at 100% 0%, rgba(167,139,250,.16), transparent 50%),
+                  var(--bg);
+      color: var(--fg);
+      line-height: 1.55;
+    }
+    a { color: inherit; text-decoration: none; }
+    .container { max-width: var(--maxw); margin: 0 auto; padding: 24px; }
+
+    /* Header */
+    .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .2px; }
+    .badge { font-size: 12px; padding: 6px 10px; border: 1px solid var(--card-border); border-radius: 999px; color: var(--muted); }
+
+    /* Hero */
+    .hero { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 32px; align-items: center; padding: 32px 0 12px; }
+    .title { font-size: clamp(34px, 6vw, 56px); line-height: 1.05; margin: 0 0 14px; font-weight: 800; }
+    .subtitle { color: var(--muted); font-size: clamp(16px, 2.2vw, 18px); margin-bottom: 28px; }
+    .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      padding: 12px 18px; border-radius: 12px; font-weight: 700; transition: transform .06s ease, opacity .2s ease, box-shadow .2s ease; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--card-border);
+    }
+    .btn.primary { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b1020; border: none; box-shadow: var(--shadow); }
+    .btn.ghost { background: rgba(255,255,255,0.04); color: var(--fg); }
+    .btn:hover { transform: translateY(-1px); }
+
+    .hero-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+    .screen { background: #0f172a; border: 1px solid var(--card-border); border-radius: 16px; padding: 16px; min-height: 280px; }
+    .bubble { background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); padding: 12px 14px; border-radius: 14px; margin: 10px 0; max-width: 100%; }
+    .bubble.me { background: rgba(34,211,238,0.12); border-color: rgba(34,211,238,0.35); }
+
+    /* Sections */
+    .section { padding: 40px 0; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 18px; }
+    .card h3 { margin: 0 0 6px; font-size: 18px; }
+    .muted { color: var(--muted); }
+
+    /* Footer */
+    footer { border-top: 1px solid var(--card-border); margin-top: 32px; padding: 18px 0 48px; color: var(--muted); font-size: 14px; }
+
+    /* Mobile */
+    @media (max-width: 880px) {
+      .hero { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔔 Nagger Bot</h1>
-        <p style="text-align: center; font-size: 1.2em;">Your Personal Telegram Reminder Assistant</p>
-        
-        <div class="status">
-            ✅ Bot is running and ready to use!
-        </div>
-        
-        <div style="text-align: center;">
-            <a href="https://t.me/Naggering_Bot" class="bot-link">Start Using Nagger Bot</a>
-        </div>
-        
-        <div class="features">
-            <h2>Features</h2>
-            <div class="feature">Persistent reminders that keep nagging until tasks are completed</div>
-            <div class="feature">Quick task creation with simple commands</div>
-            <div class="feature">Customizable reminder frequencies (every X minutes/hours)</div>
-            <div class="feature">Smart escalation - reminders get more frequent near deadlines</div>
-            <div class="feature">Quiet hours support (no reminders during sleep time)</div>
-            <div class="feature">Multiple simultaneous tasks with individual settings</div>
-            <div class="feature">PostgreSQL database for reliable persistent storage</div>
-        </div>
-        
-        <div class="commands">
-            <h3>Quick Start Commands</h3>
-            <p><span class="command">/start</span> - Start the bot and see welcome message</p>
-            <p><span class="command">/q Buy milk | in 2 hours | 30m</span> - Quick add a task</p>
-            <p><span class="command">/list</span> - View all your active tasks</p>
-            <p><span class="command">/done5</span> - Mark task #5 as completed</p>
-            <p><span class="command">/help</span> - See all available commands</p>
-        </div>
-        
-        <div style="text-align: center; margin-top: 40px;">
-            <p>Ready to never forget a task again?</p>
-            <a href="https://t.me/Naggering_Bot" class="bot-link">Open in Telegram</a>
-        </div>
+  <header class="container nav">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect width="128" height="128" rx="24" fill="#0f172a"/>
+        <path d="M34 84c18-6 30-18 40-38l8 20 12-6-8 30c-2 7-9 12-16 12H42c-8 0-12-8-8-18z" fill="#22d3ee"/>
+      </svg>
+      <span>Naggering Bot</span>
+      <span class="badge">Simple • Annoying • Effective</span>
     </div>
+    <a class="btn ghost" href="#get" aria-label="Jump to get started">Get Started</a>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <div>
+        <h1 class="title">Stop forgetting. Get nagged till it’s done.</h1>
+        <p class="subtitle">Set a task, choose how often to be pinged, reply <b>“done”</b> to shut it up. Fully customizable reminders. Works on Telegram.</p>
+        <div class="cta">
+          <a class="btn primary" href="https://t.me/Naggering_Bot" target="_blank" rel="noreferrer noopener">Open Telegram Bot</a>
+          <a class="btn ghost" href="#how">How it works</a>
+        </div>
+      </div>
+      <div class="hero-card" aria-hidden="true">
+        <div class="screen">
+          <div class="bubble">/add — “Finish DS assignment by 9pm; remind every 20m”</div>
+          <div class="bubble me">Added: DS assignment · ⏰ every 20m · ⏳ until 9:00 PM</div>
+          <div class="bubble">Reminder: DS assignment · reply "done" to stop</div>
+          <div class="bubble me">done</div>
+          <div class="bubble">Marked complete. Proud of you (barely).</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="how" class="section">
+      <div class="grid">
+        <div class="card">
+          <h3>1. Add a task</h3>
+          <p class="muted">Use <code>/add</code> with title, deadline, and reminder frequency (15m, hourly, daily, or specific times).</p>
+        </div>
+        <div class="card">
+          <h3>2. Get nagged</h3>
+          <p class="muted">It pings you on schedule. Ignoring it makes it try harder near the deadline.</p>
+        </div>
+        <div class="card">
+          <h3>3. Say “done”</h3>
+          <p class="muted">Reply <code>done</code> or tap Complete. It shuts up and marks the task finished.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="get" class="section">
+      <div class="card">
+        <h3 style="margin-top:0">Get Started</h3>
+        <p class="muted">Open the bot on Telegram and add your first task. That’s it.</p>
+        <div class="cta">
+          <a class="btn primary" href="https://t.me/Naggering_Bot" target="_blank" rel="noreferrer noopener">Launch @Naggering_Bot</a>
+          <button class="btn ghost" id="copyLinkBtn" type="button">Copy link</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="container">
+    Built by <b>Rishi</b>. No fluff — just results. If it annoys you, it’s working.
+  </footer>
+
+  <script>
+    // Copy bot link helper
+    const link = 'https://t.me/Naggering_Bot';
+    document.getElementById('copyLinkBtn')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(link);
+        const btn = document.getElementById('copyLinkBtn');
+        btn.textContent = 'Copied';
+        setTimeout(() => (btn.textContent = 'Copy link'), 1200);
+      } catch (e) {
+        alert('Copy failed. Link: ' + link);
+      }
+    });
+
+    // Smooth scroll for in-page anchors
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', (e) => {
+        const id = a.getAttribute('href');
+        if (!id || id === '#') return;
+        const el = document.querySelector(id);
+        if (!el) return;
+        e.preventDefault();
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        history.replaceState(null, '', id);
+      });
+    });
+
+    // Simple UTM passthrough if you ever add links later
+    (function passthroughUTM(){
+      const q = location.search;
+      if (!q) return;
+      document.querySelectorAll('a[href^="https://t.me/"]').forEach(a => {
+        try { const u = new URL(a.href); u.search = q; a.href = u.toString(); } catch (_) {}
+      });
+    })();
+  </script>
 </body>
 </html>
+<!--
+  Naggering Bot Landing Page
+  Created by Rishi
+  https://t.me/Naggering_Bot
+-->
