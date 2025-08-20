@@ -371,6 +371,7 @@ Use `/add` for full control over:
         escalation_enabled = query.data == "escalation_yes"
         
         # Add reminder to database
+        user_id = update.effective_user.id
         user_task_id = context.user_data['user_task_id']
         actual_task_id = self.db.get_actual_task_id(user_id, user_task_id)
         

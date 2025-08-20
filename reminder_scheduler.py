@@ -121,11 +121,18 @@ class ReminderScheduler:
             message = reminder.get_reminder_message(task, is_escalated)
             
             # Send the message
-            await self.bot.send_message(
-                chat_id=task.user_id,
-                text=message,
-                parse_mode='Markdown'
-            )
+            try:
+                await self.bot.send_message(
+                    chat_id=task.user_id,
+                    text=message,
+                    parse_mode='Markdown'
+                )
+            except TelegramError as e:
+                if "Chat not found" in e.message:
+                    logger.warning(f"Chat not found for user {task.user_id}. The user may have blocked the bot.")
+                    # Optionally, you could add logic here to disable reminders for this user.
+                else:
+                    raise e
             
             # Update last sent time
             self.db.update_reminder(
