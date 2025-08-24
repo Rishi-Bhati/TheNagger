@@ -302,7 +302,7 @@ Use `/add` for full control over:
             
         elif query.data == "hours_custom":
             await query.edit_message_text(
-                "Please enter the start time for reminders (24-hour format):\n" 
+                "Please enter the time when reminders should PAUSE (24-hour format):\n" 
                 "Example: 09:00"
             )
             return REMINDER_START_TIME
@@ -319,7 +319,7 @@ Use `/add` for full control over:
                 context.user_data['reminder_start_time'] = f"{hour:02d}:{minute:02d}"
                 
                 await update.message.reply_text(
-                    "Please enter the end time for reminders (24-hour format):\n"
+                    "Please enter the time when reminders should RESUME (24-hour format):\n"
                     "Example: 22:00"
                 )
                 return REMINDER_END_TIME
@@ -440,13 +440,13 @@ Use `/test {user_task_id}` to send a test reminder.
             else:
                 await update.message.reply_text(
                     "❌ Please specify a task ID.\n"
-                    "Example: `/done5`"
+                    "Example: `/done 5`"
                 )
                 return
         except ValueError:
             await update.message.reply_text(
                 "❌ Invalid task ID format.\n"
-                "Example: `/done5`"
+                "Example: `/done 5`"
             )
             return
         
@@ -530,7 +530,7 @@ Use `/test {user_task_id}` to send a test reminder.
             else:
                 await update.message.reply_text(
                     "❌ Please specify a task ID.\n"
-                    "Example: `/test5`"
+                    "Example: `/test 5`"
                 )
                 return
         except ValueError:
@@ -714,8 +714,8 @@ Use `/test {user_task_id}` to send a test reminder.
 📈 *Escalation:* Enabled
 
 Task ID: `{user_task_id}`
-• Mark complete: `/done{user_task_id}`
-• Test reminder: `/test{user_task_id}`
+• Mark complete: `/done {user_task_id}`
+• Test reminder: `/test {user_task_id}`
 • View all tasks: `/list`
         """
         
