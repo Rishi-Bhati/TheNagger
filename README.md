@@ -2,7 +2,7 @@
 
 ## Why I Built This
 
-My brain has the memory of a goldfish 🐟. I forget stuff within minutes, so I built something that literally annoys me until I do the damn task. It’s less of a to-do list and more like a personal bully that keeps nagging me—basically my own toxic productivity buddy.
+My brain has the memory of a goldfish (yeah)... I forget stuff within minutes, so I built something that literally annoys me until I do the damn task. It’s less of a to-do list and more like a personal bully that keeps nagging me (literally), basically my own toxic productivity buddy.
 
 If you're like me and need constant, relentless reminders to get things done, this bot is for you.
 
@@ -51,7 +51,7 @@ The `/q` command is the fastest way to add a task. The format is:
 - `1h`, `2h`, `4h`, `8h`, `12h`
 - `daily`, `hourly`
 
-## Timezone Support 🌍
+## Timezone Support (NEW!)
 
 Nagger Bot now supports user-specific timezones!
 1. Run `/timezone`.
@@ -67,6 +67,3 @@ Once set, all deadlines and "Active Hours" will respect your local time.
 - **Database**: PostgreSQL
 - **Scheduler**: `apscheduler`
 
-## Setup and Deployment
-
-Refer to `DEPLOYMENT_GUIDE.md` for detailed instructions on how to set up and deploy your own instance of Nagger Bot.
