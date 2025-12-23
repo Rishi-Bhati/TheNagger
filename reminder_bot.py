@@ -53,6 +53,76 @@ REMINDER_FREQUENCY, REMINDER_START_TIME, REMINDER_END_TIME, REMINDER_ESCALATION 
 EDIT_CHOICE, EDIT_VALUE = range(7, 9)
 TIMEZONE_LOCATION = 9
 
+# --- Metrics & Error Handling Decorator ---
+import time
+import traceback
+from functools import wraps
+from typing import Callable, Any
+
+def track_activity(command_name: str):
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+            user = update.effective_user
+            if not user:
+                return await func(self, update, context, *args, **kwargs)
+
+            # 1. Update User Activity
+            try:
+                username = f"@{user.username}" if user.username else None
+                full_name = user.full_name
+                self.db.update_user_activity(user.id, username, full_name)
+            except Exception as e:
+                logger.error(f"Failed to track user activity: {e}")
+
+            # 2. Track Metrics & Catch Errors
+            start_time = time.time()
+            try:
+                result = await func(self, update, context, *args, **kwargs)
+                
+                # Log success metric
+                process_time = (time.time() - start_time) * 1000
+                self.db.log_bot_metric(user.id, command_name, process_time)
+                
+                return result
+
+            except Exception as e:
+                # Log failure metric (still counts as processed)
+                process_time = (time.time() - start_time) * 1000
+                self.db.log_bot_metric(user.id, command_name, process_time)
+                
+                # Filter out non-critical user errors
+                error_msg = str(e)
+                # List of errors that are "user's fault" and shouldn't be logged as system critical
+                ignored_errors = [
+                    "Message is not modified",
+                    "Query is too old",
+                    "Chat not found",
+                    "Bot was blocked by the user",
+                    "Invalid task ID",
+                    "Invalid time format",
+                    "Invalid deadline format",
+                    "Task not found"
+                ]
+                
+                is_ignored = any(ignored in error_msg for ignored in ignored_errors)
+                
+                if not is_ignored and not isinstance(e, ValueError): # Ignored value errors usually input related
+                    logger.error(f"Critical error in {command_name}: {e}")
+                    stack_trace = traceback.format_exc()
+                    self.db.log_bot_error(user.id, type(e).__name__, error_msg, stack_trace)
+                    
+                    # Notify user only if it's a critical failure
+                    if update.message:
+                         # Don't send for user errors, but for real crashes
+                         pass 
+                
+                raise e 
+
+        return wrapper
+    return decorator
+
+
 class ReminderBot:
     def __init__(self):
         self.db = Database(DATABASE_URL)
@@ -66,6 +136,7 @@ class ReminderBot:
         await self.scheduler.start()
         logger.info("Bot initialized successfully")
     
+    @track_activity("start")
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a message when the command /start is issued."""
         user = update.effective_user
@@ -93,6 +164,7 @@ Type `/help` for more examples or `/q` to quickly add your first task.
         
         await update.message.reply_html(welcome_message)
     
+    @track_activity("help")
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a detailed help message"""
         help_text = """
@@ -551,6 +623,7 @@ Use `/test {user_task_id}` to send a test reminder.
         
         return ConversationHandler.END
     
+    @track_activity("list_tasks")
     async def list_tasks(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """List all active tasks for the user"""
         user_id = update.effective_user.id
@@ -735,6 +808,7 @@ Use `/test {user_task_id}` to send a test reminder.
                 "Your tasks remain unchanged."
             )
     
+    @track_activity("quick_add")
     async def quick_add(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Quick add a task with single command"""
         user_id = update.effective_user.id

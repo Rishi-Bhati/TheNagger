@@ -98,12 +98,39 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_reminder_history_task_id ON reminder_history(task_id);
             ''')
             
-            # Create users table for settings
+            # Create users table for settings and tracking
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
+                    username VARCHAR(255),
+                    full_name VARCHAR(255),
                     timezone VARCHAR(50) DEFAULT 'UTC',
+                    status VARCHAR(50) DEFAULT 'active',
+                    last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Create bot_errors table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS bot_errors (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    error_type VARCHAR(100),
+                    error_message TEXT,
+                    stack_trace TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Create bot_metrics table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS bot_metrics (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    command VARCHAR(100),
+                    processing_time_ms FLOAT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
@@ -578,6 +605,62 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting user timezone: {e}")
             return 'UTC'
+        finally:
+            cursor.close()
+            conn.close()
+
+    def log_bot_error(self, user_id: Optional[int], error_type: str, error_message: str, stack_trace: str):
+        """Log a critical bot error"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO bot_errors (user_id, error_type, error_message, stack_trace)
+                VALUES (%s, %s, %s, %s)
+            ''', (user_id, error_type, error_message, stack_trace))
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to log bot error: {e}")
+            conn.rollback()
+        finally:
+            cursor.close()
+            conn.close()
+
+    def log_bot_metric(self, user_id: int, command: str, processing_time_ms: float):
+        """Log bot performance metric"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO bot_metrics (user_id, command, processing_time_ms)
+                VALUES (%s, %s, %s)
+            ''', (user_id, command, processing_time_ms))
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to log bot metric: {e}")
+            conn.rollback()
+        finally:
+            cursor.close()
+            conn.close()
+
+    def update_user_activity(self, user_id: int, username: Optional[str] = None, full_name: Optional[str] = None):
+        """Update user's last active timestamp and details"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO users (user_id, username, full_name, last_active_at)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET 
+                    last_active_at = CURRENT_TIMESTAMP,
+                    username = COALESCE(EXCLUDED.username, users.username),
+                    full_name = COALESCE(EXCLUDED.full_name, users.full_name)
+            ''', (user_id, username, full_name))
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update user activity: {e}")
+            conn.rollback()
         finally:
             cursor.close()
             conn.close()
