@@ -1,5 +1,7 @@
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
+from contextlib import contextmanager
 import json
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
@@ -14,17 +16,25 @@ class Database:
         self.db_url = db_url or os.environ.get("DATABASE_URL")
         if not self.db_url:
             raise ValueError("DATABASE_URL environment variable is required")
+        
+        # Initialize connection pool
+        # Min 1 connection, Max 10 connections (conservative for 512MB RAM)
+        self.pool = ThreadedConnectionPool(1, 10, self.db_url)
         self.init_database()
     
+    @contextmanager
     def get_connection(self):
-        """Create and return a database connection"""
-        conn = psycopg2.connect(self.db_url)
-        return conn
+        """Yield a database connection from the pool"""
+        conn = self.pool.getconn()
+        try:
+            yield conn
+        finally:
+            self.pool.putconn(conn)
     
     def init_database(self):
         """Initialize database tables"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             # Create tasks table
@@ -134,6 +144,14 @@ class Database:
                 )
             ''')
             
+            # Migration: Ensure new columns exist for existing installations
+            cursor.execute('''
+                ALTER TABLE users 
+                ADD COLUMN IF NOT EXISTS username VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS full_name VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+            ''')
+            
             conn.commit()
             logger.info("Database tables initialized successfully")
         except Exception as e:
@@ -142,12 +160,11 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def add_task(self, user_id: int, title: str, description: str, deadline: datetime) -> int:
         """Add a new task and create a user-specific ID mapping."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             # 1. Add the task to the main tasks table
@@ -180,15 +197,14 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def add_reminder(self, task_id: int, frequency_type: str, frequency_value: int,
                     start_time: Optional[str] = None, end_time: Optional[str] = None,
                     escalation_enabled: bool = False, escalation_threshold: int = 60,
                     custom_messages: Optional[List[str]] = None) -> int:
         """Add a reminder configuration for a task"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             custom_messages_json = json.dumps(custom_messages) if custom_messages else None
@@ -211,51 +227,64 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def get_user_tasks(self, user_id: int, include_completed: bool = False) -> List[Dict]:
-        """Get all tasks for a user with their user-facing IDs."""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        try:
-            query = '''
-                SELECT t.*, m.user_task_id
-                FROM tasks t
-                JOIN user_task_id_mapping m ON t.id = m.actual_task_id
-                WHERE t.user_id = %s
-            '''
-            if not include_completed:
-                query += " AND t.completed = FALSE"
-            query += " ORDER BY t.deadline"
+        """Get all tasks for a user with their user-facing IDs + reminders efficiently."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             
-            cursor.execute(query, (user_id,))
-            
-            tasks = []
-            for row in cursor.fetchall():
-                task = dict(row)
-                # Get reminders for this task
-                cursor.execute('''
-                    SELECT * FROM reminders WHERE task_id = %s
-                ''', (task['id'],))
+            try:
+                # 1. Get all tasks
+                query = '''
+                    SELECT t.*, m.user_task_id
+                    FROM tasks t
+                    JOIN user_task_id_mapping m ON t.id = m.actual_task_id
+                    WHERE t.user_id = %s
+                '''
+                if not include_completed:
+                    query += " AND t.completed = FALSE"
+                query += " ORDER BY t.deadline"
                 
-                reminders = []
-                for reminder_row in cursor.fetchall():
-                    reminder = dict(reminder_row)
-                    if reminder['custom_messages']:
-                        reminder['custom_messages'] = reminder['custom_messages']  # JSONB automatically parsed
-                    reminders.append(reminder)
+                cursor.execute(query, (user_id,))
+                tasks = [dict(row) for row in cursor.fetchall()]
                 
-                task['reminders'] = reminders
-                tasks.append(task)
-            
-            return tasks
-        except Exception as e:
-            logger.error(f"Error getting user tasks: {e}")
-            raise
-        finally:
-            cursor.close()
-            conn.close()
+                if not tasks:
+                    return []
+
+                # 2. Get all reminders for these tasks in ONE query
+                task_ids = [t['id'] for t in tasks]
+                if task_ids:
+                    cursor.execute('''
+                        SELECT * FROM reminders WHERE task_id = ANY(%s)
+                    ''', (task_ids,))
+                    
+                    all_reminders = cursor.fetchall()
+                    
+                    # Group reminders by task_id
+                    reminders_by_task = {}
+                    for r in all_reminders:
+                        r_dict = dict(r)
+                        if r_dict['custom_messages']:
+                            r_dict['custom_messages'] = r_dict['custom_messages']
+                        
+                        tid = r_dict['task_id']
+                        if tid not in reminders_by_task:
+                            reminders_by_task[tid] = []
+                        reminders_by_task[tid].append(r_dict)
+                    
+                    # Attach to tasks
+                    for task in tasks:
+                        task['reminders'] = reminders_by_task.get(task['id'], [])
+                else:
+                    for task in tasks:
+                        task['reminders'] = []
+                
+                return tasks
+            except Exception as e:
+                logger.error(f"Error getting user tasks: {e}")
+                raise
+            finally:
+                cursor.close()
     
     def get_task_by_id(self, user_id: int, user_task_id: int) -> Optional[Dict]:
         """Get a specific task by its user-facing ID."""
@@ -264,8 +293,8 @@ class Database:
         if not actual_task_id:
             return None
             
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         try:
             cursor.execute('''
@@ -296,13 +325,12 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def update_task(self, actual_task_id: int, **kwargs) -> bool:
         """Update task fields using the actual task ID."""
         logger.info(f"Updating task with actual_task_id {actual_task_id}")
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             allowed_fields = ['title', 'description', 'deadline', 'completed', 'completed_at']
@@ -331,13 +359,12 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def delete_task(self, actual_task_id: int) -> bool:
         """Delete a task and its reminders using the actual task ID."""
         logger.info(f"Deleting task with actual_task_id {actual_task_id}")
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             # The mapping table will be cleared by the ON DELETE CASCADE foreign key
@@ -352,12 +379,11 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def update_reminder(self, reminder_id: int, **kwargs) -> bool:
         """Update reminder configuration"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             allowed_fields = ['frequency_type', 'frequency_value', 'start_time', 
@@ -390,12 +416,11 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def get_pending_reminders(self) -> List[Dict]:
         """Get all tasks that need reminders sent"""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         try:
             # Get all active tasks with their reminders
@@ -439,12 +464,11 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def log_reminder_sent(self, task_id: int, message_type: str = 'normal'):
         """Log that a reminder was sent"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             cursor.execute('''
@@ -459,12 +483,11 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def get_reminder_history(self, task_id: int) -> List[Dict]:
         """Get reminder history for a task"""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         try:
             cursor.execute('''
@@ -480,12 +503,11 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def clear_all_user_data(self, user_id: int) -> int:
         """Clear all data for a user by deleting their tasks, which cascades."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             # Get all actual task IDs for the user
@@ -512,12 +534,11 @@ class Database:
             raise
         finally:
             cursor.close()
-            conn.close()
     
     def get_actual_task_id(self, user_id: int, user_task_id: int) -> Optional[int]:
         """Translate a user-facing ID to an actual database ID."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             cursor.execute(
@@ -531,7 +552,6 @@ class Database:
             return None
         finally:
             cursor.close()
-            conn.close()
     
     def reset_user_task_ids(self, user_id: int) -> bool:
         """
@@ -539,8 +559,8 @@ class Database:
         This doesn't reset the actual database sequence but provides
         user-friendly task IDs starting from 1
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             # First, check if we need to create a user_task_mapping table
@@ -566,11 +586,10 @@ class Database:
             return False
         finally:
             cursor.close()
-            conn.close()
     def set_user_timezone(self, user_id: int, timezone: str) -> bool:
         """Set the timezone for a user"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             cursor.execute('''
@@ -588,12 +607,11 @@ class Database:
             return False
         finally:
             cursor.close()
-            conn.close()
             
     def get_user_timezone(self, user_id: int) -> str:
         """Get the timezone for a user, default to UTC"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         
         try:
             cursor.execute('SELECT timezone FROM users WHERE user_id = %s', (user_id,))
@@ -607,12 +625,11 @@ class Database:
             return 'UTC'
         finally:
             cursor.close()
-            conn.close()
 
     def log_bot_error(self, user_id: Optional[int], error_type: str, error_message: str, stack_trace: str):
         """Log a critical bot error"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
         try:
             cursor.execute('''
                 INSERT INTO bot_errors (user_id, error_type, error_message, stack_trace)
@@ -624,43 +641,37 @@ class Database:
             conn.rollback()
         finally:
             cursor.close()
-            conn.close()
 
     def log_bot_metric(self, user_id: int, command: str, processing_time_ms: float):
         """Log bot performance metric"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        # DB calls here are very fast now due to pooling, won't slow down the bot much
         try:
-            cursor.execute('''
-                INSERT INTO bot_metrics (user_id, command, processing_time_ms)
-                VALUES (%s, %s, %s)
-            ''', (user_id, command, processing_time_ms))
-            conn.commit()
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO bot_metrics (user_id, command, processing_time_ms)
+                    VALUES (%s, %s, %s)
+                ''', (user_id, command, processing_time_ms))
+                conn.commit()
+                cursor.close()
         except Exception as e:
             logger.error(f"Failed to log bot metric: {e}")
-            conn.rollback()
-        finally:
-            cursor.close()
-            conn.close()
 
     def update_user_activity(self, user_id: int, username: Optional[str] = None, full_name: Optional[str] = None):
-        """Update user's last active timestamp and details"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        """Update user's active status"""
         try:
-            cursor.execute('''
-                INSERT INTO users (user_id, username, full_name, last_active_at)
-                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                ON CONFLICT (user_id) 
-                DO UPDATE SET 
-                    last_active_at = CURRENT_TIMESTAMP,
-                    username = COALESCE(EXCLUDED.username, users.username),
-                    full_name = COALESCE(EXCLUDED.full_name, users.full_name)
-            ''', (user_id, username, full_name))
-            conn.commit()
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO users (user_id, username, full_name, last_active_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id) 
+                    DO UPDATE SET 
+                        last_active_at = CURRENT_TIMESTAMP,
+                        username = COALESCE(EXCLUDED.username, users.username),
+                        full_name = COALESCE(EXCLUDED.full_name, users.full_name)
+                ''', (user_id, username, full_name))
+                conn.commit()
+                cursor.close()
         except Exception as e:
             logger.error(f"Failed to update user activity: {e}")
-            conn.rollback()
-        finally:
-            cursor.close()
-            conn.close()

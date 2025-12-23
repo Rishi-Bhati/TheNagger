@@ -45,6 +45,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+# Silence verbose libraries
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Conversation states
