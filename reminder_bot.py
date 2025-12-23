@@ -3,7 +3,14 @@ import logging
 import asyncio
 from datetime import datetime, timedelta
 from threading import Thread
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update, 
+    InlineKeyboardButton, 
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove
+)
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -11,8 +18,12 @@ from telegram.ext import (
     CallbackQueryHandler,
     ConversationHandler,
     filters,
+    filters,
     ContextTypes
 )
+from telegram.request import HTTPXRequest
+import pytz
+from timezonefinder import TimezoneFinder
 
 from config import TELEGRAM_BOT_TOKEN, DATABASE_URL
 from database import Database
@@ -40,12 +51,14 @@ logger = logging.getLogger(__name__)
 TASK_TITLE, TASK_DESCRIPTION, TASK_DEADLINE = range(3)
 REMINDER_FREQUENCY, REMINDER_START_TIME, REMINDER_END_TIME, REMINDER_ESCALATION = range(3, 7)
 EDIT_CHOICE, EDIT_VALUE = range(7, 9)
+TIMEZONE_LOCATION = 9
 
 class ReminderBot:
     def __init__(self):
         self.db = Database(DATABASE_URL)
         self.application = None
         self.scheduler = None
+        self.tf = TimezoneFinder()
         
     async def post_init(self, application: Application) -> None:
         """Initialize bot after application is built"""
@@ -83,62 +96,184 @@ Type `/help` for more examples or `/q` to quickly add your first task.
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a detailed help message"""
         help_text = """
-📚 *Nagger Bot Help*
+👋 *Hi! I'm Nagger Bot.*
+I'll keep bothering you until you get things done!
 
-*Commands:*
-• `/start` - Start the bot and see welcome message
-• `/add` - Add a new task (detailed mode)
-• `/q` - Quick add task (single command)
-• `/list` - List all active tasks
-• `/edit <task_id>` - Edit a task
-• `/delete <task_id>` - Delete a task
-• `/done <task_id>` - Mark task as completed
-• `/test <task_id>` - Send a test reminder
-• `/clear` - Clear all your tasks (fresh start)
+🌟 *Getting Started (The Basics)*
+• `/add` - Start here! I'll ask you questions to set up your task.
+• `/list` - See what you need to do.
+• `/done <id>` - Tell me you finished a task (e.g., `/done 1`).
+• `/timezone` - Set your time so I don't wake you up at 3 AM! 🌍
 
-*Quick Add (NEW!):*
-`/q <title> | <deadline> | <frequency>`
+🚀 *Power User Features*
+Want to be faster? Use Quick Add:
+`/q <Title>, <Deadline>, <Frequency>`
+_Ex: `/q Buy milk, 5pm, 30m`_
 
-Examples:
-• `/q Buy milk | in 2 hours | 30m`
-• `/q Finish report | tomorrow 5pm | 1h`
-• `/q Call mom | today 6pm | 2h`
+📋 *All Commands*
+• `/start` - Restart me
+• `/add` - Add task (Wizard mode)
+• `/q` - Add task (Fast mode)
+• `/list` - Show active tasks
+• `/done <id>` - Complete task
+• `/delete <id>` - Remove task
+• `/edit <id>` - Modify task
+• `/test <id>` - Send test reminder
+• `/clear` - Delete EVERYTHING
+• `/timezone` - Set location
 
-*Frequency shortcuts:*
-• `15m` = every 15 minutes
-• `30m` = every 30 minutes  
-• `1h` = every hour
-• `2h` = every 2 hours
-• `daily` = once per day
-
-*Detailed Add:*
-Use `/add` for full control over:
-• Description
-• Custom active hours
-• Escalation settings
-• Custom messages
-
-*Deadline Formats:*
-• Relative: `in 2 hours`, `in 30 minutes`
-• Natural: `tomorrow at 3pm`, `today at 6pm`
-• Specific: `2024-12-25 15:30`
-
-*Tips:*
-• Use `/done <task_id>` (e.g., `/done 5`) for quick completion
-• Default reminder hours: 8 AM - 10 PM
-• Escalation enabled by default for quick tasks
-• Use `/clear` to reset all tasks and start fresh
+💡 *Pro Tip:*
+Use "natural language" for times!
+• "in 10 minutes"
+• "tomorrow at 5pm"
+• "every 2 hours"
         """
         
         await update.message.reply_text(help_text, parse_mode='Markdown')
     
+    async def timezone_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Start timezone selection"""
+        user_id = update.effective_user.id
+        current_tz = self.db.get_user_timezone(user_id)
+        
+        keyboard = [
+            [KeyboardButton("📍 Send Location", request_location=True)],
+            [KeyboardButton("Manual Selection")]
+        ]
+        
+        await update.message.reply_text(
+            f"🌍 *Timezone Settings*\n\n"
+            f"Current timezone: `{current_tz}`\n\n"
+            "To set your timezone, you can:\n"
+            "1. Share your location (Easiest)\n"
+            "2. Select manually\n\n"
+            "Tap 'Send Location' below or type 'Manual Selection'.",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
+            parse_mode='Markdown'
+        )
+        return TIMEZONE_LOCATION
+
+    async def handle_location(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle location sharing for timezone detection"""
+        user = update.effective_user
+        location = update.message.location
+        
+        if location:
+            timezone_str = self.tf.timezone_at(lng=location.longitude, lat=location.latitude)
+            if timezone_str:
+                self.db.set_user_timezone(user.id, timezone_str)
+                await update.message.reply_text(
+                    f"✅ Timezone set to: `{timezone_str}`",
+                    reply_markup=ReplyKeyboardRemove(),
+                    parse_mode='Markdown'
+                )
+                return ConversationHandler.END
+        
+        await update.message.reply_text(
+            "❌ Could not determine timezone from location. Please try manual selection.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
+    async def handle_manual_timezone(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle manual timezone selection text"""
+        text = update.message.text
+        
+        if text == "Manual Selection":
+            # Show continent selection
+            continents = ["America", "Europe", "Asia", "Australia", "Africa", "Pacific"]
+            keyboard = []
+            row = []
+            for cont in continents:
+                row.append(InlineKeyboardButton(cont, callback_data=f"tz_cont_{cont}"))
+                if len(row) == 2:
+                    keyboard.append(row)
+                    row = []
+            if row:
+                keyboard.append(row)
+                
+            await update.message.reply_text(
+                "Select your continent:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return TIMEZONE_LOCATION
+            
+        return ConversationHandler.END
+
+    async def handle_timezone_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle timezone selection callbacks"""
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data
+        if data.startswith("tz_cont_"):
+            continent = data.split("_")[2]
+            # Show major cities for continent (simplified list)
+            cities = {
+                "America": ["New_York", "Chicago", "Los_Angeles", "Toronto", "Sao_Paulo"],
+                "Europe": ["London", "Paris", "Berlin", "Rome", "Moscow"],
+                "Asia": ["Tokyo", "Shanghai", "Singapore", "Dubai", "Kolkata"],
+                "Australia": ["Sydney", "Melbourne", "Perth"],
+                "Africa": ["Cairo", "Johannesburg", "Lagos"],
+                "Pacific": ["Auckland", "Fiji"]
+            }
+            
+            keyboard = []
+            row = []
+            for city in cities.get(continent, []):
+                tz_name = f"{continent}/{city}"
+                row.append(InlineKeyboardButton(city.replace("_", " "), callback_data=f"tz_set_{tz_name}"))
+                if len(row) == 2:
+                    keyboard.append(row)
+                    row = []
+            if row:
+                keyboard.append(row)
+            
+            # Add back button
+            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="tz_back")])
+            
+            await query.edit_message_text(
+                f"Select city in {continent}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return TIMEZONE_LOCATION
+            
+        elif data.startswith("tz_set_"):
+            timezone_str = data.split("_", 2)[2]
+            user_id = update.effective_user.id
+            self.db.set_user_timezone(user_id, timezone_str)
+            
+            await query.edit_message_text(
+                f"✅ Timezone set to: `{timezone_str}`",
+                parse_mode='Markdown'
+            )
+            return ConversationHandler.END
+            
+        elif data == "tz_back":
+            # Go back to continent selection
+            return await self.handle_manual_timezone(update, context)
+            
+        return TIMEZONE_LOCATION
+    
     # Task Management Commands
     async def add_task_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Start the add task conversation"""
+        user_id = update.effective_user.id
+        timezone = self.db.get_user_timezone(user_id)
+        
+        if timezone == 'UTC':
+            await update.message.reply_text(
+                "⚠️ *Timezone Not Set*\n\n"
+                "You are currently using UTC time. For accurate reminders, please set your timezone first using `/timezone`.\n\n"
+                "You can continue, but times will be treated as UTC.",
+                parse_mode='Markdown'
+            )
+            
         await update.message.reply_text(
             "📝 *Creating a new task*\n\n"
             "Please enter the *task title*:\n"
-            "(e.g., 'Finish project report')",
+            "(e.g., 'Finish project report')\n\n"
+            "_Type /cancel at any time to abort._",
             parse_mode='Markdown'
         )
         return TASK_TITLE
@@ -175,7 +310,10 @@ Use `/add` for full control over:
     async def add_task_deadline(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle task deadline input"""
         deadline_str = update.message.text
-        deadline = parse_datetime(deadline_str)
+        user_id = update.effective_user.id
+        user_timezone = self.db.get_user_timezone(user_id)
+        
+        deadline = parse_datetime(deadline_str, user_timezone)
         
         if not deadline:
             await update.message.reply_text(
@@ -184,7 +322,8 @@ Use `/add` for full control over:
             )
             return TASK_DEADLINE
         
-        if deadline <= datetime.now():
+        now_utc = datetime.now(pytz.UTC).replace(tzinfo=None)
+        if deadline <= now_utc:
             await update.message.reply_text(
                 "❌ Deadline must be in the future. Please try again:"
             )
@@ -193,7 +332,6 @@ Use `/add` for full control over:
         context.user_data['task_deadline'] = deadline
         
         # Create the task
-        user_id = update.effective_user.id
         user_task_id = self.db.add_task(
             user_id=user_id,
             title=context.user_data['task_title'],
@@ -417,6 +555,7 @@ Use `/test {user_task_id}` to send a test reminder.
         """List all active tasks for the user"""
         user_id = update.effective_user.id
         tasks = self.db.get_user_tasks(user_id)
+        user_timezone = self.db.get_user_timezone(user_id)
         
         if not tasks:
             await update.message.reply_text(
@@ -425,7 +564,7 @@ Use `/test {user_task_id}` to send a test reminder.
             )
             return
         
-        message = format_task_list(tasks)
+        message = format_task_list(tasks, user_timezone)
         await update.message.reply_text(message, parse_mode='Markdown')
     
     async def mark_done(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -607,34 +746,43 @@ Use `/test {user_task_id}` to send a test reminder.
         else:
             await update.message.reply_text(
                 "⚡ *Quick Add Format:*\n"
-                "`/q <title> | <deadline> | <frequency>`\n\n"
+                "`/q <title>, <deadline>, <frequency>`\n\n"
                 "*Examples:*\n"
-                "• `/q Buy milk | in 2 hours | 30m`\n"
-                "• `/q Finish report | tomorrow 5pm | 1h`\n"
-                "• `/q Call mom | today 6pm | daily`",
+                "• `/q Buy milk, in 2 hours, 30m`\n"
+                "• `/q Finish report, tomorrow 5pm, 1h`\n"
+                "• `/q Call mom, today 6pm, daily`",
                 parse_mode='Markdown'
             )
             return
         
-        # Parse the input
-        parts = [p.strip() for p in text.split('|')]
-        if len(parts) != 3:
+        # Parse the input (split by comma first, fallback to pipe for backward compatibility)
+        if ',' in text:
+            parts = [p.strip() for p in text.split(',')]
+        else:
+            parts = [p.strip() for p in text.split('|')]
+            
+        if len(parts) < 2:
             await update.message.reply_text(
-                "❌ Invalid format. Use: `/q <title> | <deadline> | <frequency>`\n"
-                "Example: `/q Buy groceries | in 2 hours | 30m`",
+                "❌ Invalid format. Use: `/q Title, Deadline, Frequency`\n"
+                "Example: `/q Buy groceries, in 2 hours, 30m`",
                 parse_mode='Markdown'
             )
             return
         
-        title, deadline_str, freq_str = parts
+        title = parts[0]
+        deadline_str = parts[1]
+        freq_str = parts[2] if len(parts) > 2 else "30m"  # Default frequency
         
         # Validate title
         if not title:
             await update.message.reply_text("❌ Task title cannot be empty.")
             return
         
+        # Get user timezone
+        user_timezone = self.db.get_user_timezone(user_id)
+        
         # Parse deadline
-        deadline = parse_datetime(deadline_str)
+        deadline = parse_datetime(deadline_str, user_timezone)
         if not deadline:
             await update.message.reply_text(
                 "❌ Invalid deadline format.\n"
@@ -642,7 +790,8 @@ Use `/test {user_task_id}` to send a test reminder.
             )
             return
         
-        if deadline <= datetime.now():
+        now_utc = datetime.now(pytz.UTC).replace(tzinfo=None)
+        if deadline <= now_utc:
             await update.message.reply_text("❌ Deadline must be in the future.")
             return
         
@@ -700,8 +849,15 @@ Use `/test {user_task_id}` to send a test reminder.
         # Schedule reminders
         self.scheduler.schedule_task_reminders(user_id, user_task_id)
         
-        # Send confirmation
-        deadline_formatted = deadline.strftime("%Y-%m-%d %H:%M")
+        # Send confirmation (convert deadline back to user timezone for display)
+        try:
+            tz = pytz.timezone(user_timezone)
+        except:
+            tz = pytz.UTC
+            
+        deadline_local = pytz.UTC.localize(deadline).astimezone(tz)
+        deadline_formatted = deadline_local.strftime("%Y-%m-%d %H:%M")
+        
         freq_text = f"{freq_value} {freq_type}" if freq_value > 1 else freq_type
         
         confirmation = f"""
@@ -739,10 +895,12 @@ Task ID: `{user_task_id}`
                 "❌ An error occurred. Please try again later."
             )
     
+    
     def run(self):
         """Start the bot"""
-        # Create application
-        self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(self.post_init).build()
+        # Create application with increased timeout
+        request = HTTPXRequest(connection_pool_size=8, connect_timeout=20.0, read_timeout=20.0)
+        self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).post_init(self.post_init).build()
         
         # Add conversation handler for adding tasks
         add_task_conv = ConversationHandler(
@@ -765,11 +923,25 @@ Task ID: `{user_task_id}`
             fallbacks=[CommandHandler("cancel", self.cancel)]
         )
         
+        # Add conversation handler for timezone
+        timezone_conv = ConversationHandler(
+            entry_points=[CommandHandler("timezone", self.timezone_command)],
+            states={
+                TIMEZONE_LOCATION: [
+                    MessageHandler(filters.LOCATION, self.handle_location),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_manual_timezone),
+                    CallbackQueryHandler(self.handle_timezone_callback, pattern="^tz_")
+                ]
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel)]
+        )
+        
         # Add handlers
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("q", self.quick_add))  # Quick add handler
         self.application.add_handler(add_task_conv)
+        self.application.add_handler(timezone_conv)
         self.application.add_handler(CommandHandler("list", self.list_tasks))
         self.application.add_handler(CommandHandler("done", self.mark_done))
         self.application.add_handler(CommandHandler("delete", self.delete_task))

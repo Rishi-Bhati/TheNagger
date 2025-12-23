@@ -100,8 +100,11 @@ class ReminderScheduler:
                 last_sent=last_sent
             )
             
+            # Get user timezone
+            user_timezone = self.db.get_user_timezone(reminder_data['user_id'])
+            
             # Check if reminder should be sent
-            if reminder.should_send_reminder(task):
+            if reminder.should_send_reminder(task, user_timezone):
                 await self._send_reminder(task, reminder)
                 
         except Exception as e:
@@ -135,9 +138,10 @@ class ReminderScheduler:
                     raise e
             
             # Update last sent time
+            import pytz
             self.db.update_reminder(
                 reminder.id,
-                last_sent=datetime.now(),
+                last_sent=datetime.now(pytz.UTC),
                 next_reminder=reminder.get_next_reminder_time()
             )
             

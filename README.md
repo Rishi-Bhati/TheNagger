@@ -12,6 +12,7 @@ Nagger Bot is a Telegram bot designed to be your personal task manager. It allow
 
 ### Key Features:
 - **Quick Add**: Add tasks in a single line with natural language.
+- **Timezone Support**: Reminders are sent based on your local time (no more 3 AM wake-up calls!).
 - **Customizable Reminders**: Set reminders at any frequency (minutes, hours, or daily).
 - **Active Hours**: Configure reminders to only be active during specific hours (e.g., 8 AM - 10 PM).
 - **Escalation Mode**: Reminders get more frequent as the deadline approaches.
@@ -23,19 +24,22 @@ Nagger Bot is a Telegram bot designed to be your personal task manager. It allow
 | Command | Description | Example |
 | --- | --- | --- |
 | `/start` | Start the bot and see the welcome message. | `/start` |
-| `/q` | Quickly add a new task. | `/q Buy milk | in 2 hours | 30m` |
+| `/q` | Quickly add a new task. | `/q Buy milk, in 2 hours, 30m` |
 | `/add` | Add a new task with full customization. | `/add` |
 | `/list` | View all your active tasks. | `/list` |
 | `/done <ID>` | Mark a task as completed. | `/done 1` |
 | `/delete <ID>`| Delete a task. | `/delete 1` |
 | `/test <ID>` | Send a test reminder for a task. | `/test 1` |
+| `/timezone` | Set your local timezone. | `/timezone` |
 | `/clear` | Delete all your tasks and start fresh. | `/clear` |
 | `/help` | Show the detailed help message. | `/help` |
 
 ## Quick Add Format
 
 The `/q` command is the fastest way to add a task. The format is:
-`/q <title> | <deadline> | <frequency>`
+`/q <title>, <deadline>, <frequency>`
+
+(Note: You can use commas `,` or pipes `|` as separators)
 
 ### Deadline Formats:
 - **Relative**: `in 2 hours`, `in 30 minutes`
@@ -46,6 +50,15 @@ The `/q` command is the fastest way to add a task. The format is:
 - `15m`, `30m`, `45m`
 - `1h`, `2h`, `4h`, `8h`, `12h`
 - `daily`, `hourly`
+
+## Timezone Support 🌍
+
+Nagger Bot now supports user-specific timezones!
+1. Run `/timezone`.
+2. **Mobile**: Tap "📍 Send Location" for auto-detection.
+3. **Desktop**: Select "Manual Selection" to choose your region and city.
+
+Once set, all deadlines and "Active Hours" will respect your local time.
 
 ## Tech Stack
 

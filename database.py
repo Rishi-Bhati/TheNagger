@@ -98,6 +98,15 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_reminder_history_task_id ON reminder_history(task_id);
             ''')
             
+            # Create users table for settings
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    timezone VARCHAR(50) DEFAULT 'UTC',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
             conn.commit()
             logger.info("Database tables initialized successfully")
         except Exception as e:
@@ -366,6 +375,7 @@ class Database:
             cursor.execute('''
                 SELECT 
                     t.id as task_id,
+                    m.user_task_id,
                     t.user_id,
                     t.title,
                     t.description,
@@ -384,6 +394,7 @@ class Database:
                     r.next_reminder
                 FROM tasks t
                 JOIN reminders r ON t.id = r.task_id
+                JOIN user_task_id_mapping m ON t.id = m.actual_task_id
                 WHERE t.completed = FALSE 
                 AND t.deadline > NOW()
             ''')
@@ -526,6 +537,47 @@ class Database:
             conn.rollback()
             logger.error(f"Error resetting user task IDs: {e}")
             return False
+        finally:
+            cursor.close()
+            conn.close()
+    def set_user_timezone(self, user_id: int, timezone: str) -> bool:
+        """Set the timezone for a user"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                INSERT INTO users (user_id, timezone)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET timezone = EXCLUDED.timezone
+            ''', (user_id, timezone))
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error setting user timezone: {e}")
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+            
+    def get_user_timezone(self, user_id: int) -> str:
+        """Get the timezone for a user, default to UTC"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('SELECT timezone FROM users WHERE user_id = %s', (user_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                return result[0]
+            return 'UTC'
+        except Exception as e:
+            logger.error(f"Error getting user timezone: {e}")
+            return 'UTC'
         finally:
             cursor.close()
             conn.close()

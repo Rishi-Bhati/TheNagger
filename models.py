@@ -29,11 +29,23 @@ class Task:
     
     def is_overdue(self) -> bool:
         """Check if task is past deadline"""
-        return datetime.now() > self.deadline and not self.completed
+        import pytz
+        now = datetime.now(pytz.UTC)
+        if self.deadline.tzinfo is None:
+            deadline = pytz.UTC.localize(self.deadline)
+        else:
+            deadline = self.deadline
+        return now > deadline and not self.completed
     
     def time_until_deadline(self) -> timedelta:
         """Get time remaining until deadline"""
-        return self.deadline - datetime.now()
+        import pytz
+        now = datetime.now(pytz.UTC)
+        if self.deadline.tzinfo is None:
+            deadline = pytz.UTC.localize(self.deadline)
+        else:
+            deadline = self.deadline
+        return deadline - now
     
     def get_status(self) -> str:
         """Get task status string"""
@@ -83,22 +95,35 @@ class Reminder:
     last_sent: Optional[datetime] = None
     next_reminder: Optional[datetime] = None
     
-    def should_send_reminder(self, task: Task) -> bool:
+    def should_send_reminder(self, task: Task, user_timezone: str = 'UTC') -> bool:
         """Check if reminder should be sent now"""
         if task.completed or task.is_overdue():
             return False
         
-        now = datetime.now()
+        import pytz
+        try:
+            tz = pytz.timezone(user_timezone)
+        except pytz.UnknownTimeZoneError:
+            tz = pytz.UTC
+            
+        now_utc = datetime.now(pytz.UTC)
+        now_user = now_utc.astimezone(tz)
         
         # Check if within active hours
         if self.start_time and self.end_time:
-            current_time = now.strftime("%H:%M")
+            current_time = now_user.strftime("%H:%M")
             if not self._is_within_active_hours(current_time):
                 return False
         
         # Check if enough time has passed since last reminder
         if self.last_sent:
-            time_since_last = now - self.last_sent
+            # Ensure last_sent is timezone aware (UTC)
+            if self.last_sent.tzinfo is None:
+                last_sent = pytz.UTC.localize(self.last_sent)
+            else:
+                last_sent = self.last_sent
+                
+            time_since_last = now_utc - last_sent
             
             # Check escalation
             if self.escalation_enabled:
@@ -115,6 +140,9 @@ class Reminder:
                             return False
                     elif self.frequency_type == FrequencyType.HOURS:
                         if time_since_last.total_seconds() / 3600 < self.frequency_value:
+                            return False
+                    elif self.frequency_type == FrequencyType.DAILY:
+                        if time_since_last.days < 1:
                             return False
             else:
                 # Normal frequency check
@@ -186,7 +214,7 @@ class Reminder:
                 description=task.description,
                 deadline=task.deadline.strftime("%Y-%m-%d %H:%M"),
                 time_left=time_left_str,
-                task_id=task.id
+                task_id=task.user_task_id
             )
         else:
             from config import REMINDER_TEMPLATE
@@ -205,7 +233,7 @@ class Reminder:
                     title=task.title,
                     description=task.description,
                     deadline=task.deadline.strftime("%Y-%m-%d %H:%M"),
-                    task_id=task.id
+                    task_id=task.user_task_id
                 )
     
     def to_dict(self) -> Dict:
