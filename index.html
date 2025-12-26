@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Naggering Bot — Stop Forgetting</title>
-  <meta name="description" content="A brutally effective reminder bot. Set tasks, pick how often to nag, reply 'done' to shut it up. Simple, annoying, effective." />
+  <meta name="description" content="A brutally effective reminder bot. Now with timezone support, smart natural language commands, and lightning-fast responses. Simple, annoying, effective." />
 
   <!-- Open Graph / Social Preview -->
   <meta property="og:title" content="Naggering Bot — Stop Forgetting" />
-  <meta property="og:description" content="Set reminders that actually nag you until you finish. Telegram: @Naggering_Bot" />
+  <meta property="og:description" content="Set reminders that actually nag you until you finish. Now Global & Faster. Telegram: @Naggering_Bot" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://t.me/Naggering_Bot" />
-  <meta property="og:image" content="https://dummyimage.com/1200x630/0f172a/ffffff&text=Naggering+Bot" />
+  <meta property="og:image" content="https://dummyimage.com/1200x630/0f172a/ffffff&text=Naggering+Bot+v2.1" />
   <meta name="twitter:card" content="summary_large_image" />
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='24' fill='%230f172a'/%3E%3Cpath d='M34 84c18-6 30-18 40-38l8 20 12-6-8 30c-2 7-9 12-16 12H42c-8 0-12-8-8-18z' fill='%23ffffff'/%3E%3C/svg%3E" />
@@ -71,6 +71,21 @@
     .card h3 { margin: 0 0 6px; font-size: 18px; }
     .muted { color: var(--muted); }
 
+    /* Status Widget */
+    .status-widget {
+      margin-top: 18px;
+      padding: 16px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+      font-size: 14px;
+    }
+    .status-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 600; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 5px var(--muted); transition: background .3s, box-shadow .3s; }
+    .status-dot.active { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+    .status-dot.error { background: #f87171; box-shadow: 0 0 8px #f87171; }
+    .status-meta { font-size: 12px; color: var(--muted); opacity: 0.8; margin-top: 4px; display: flex; gap: 8px; }
+
     /* Footer */
     footer { border-top: 1px solid var(--card-border); margin-top: 32px; padding: 18px 0 48px; color: var(--muted); font-size: 14px; }
 
@@ -89,7 +104,7 @@
         <path d="M34 84c18-6 30-18 40-38l8 20 12-6-8 30c-2 7-9 12-16 12H42c-8 0-12-8-8-18z" fill="#22d3ee"/>
       </svg>
       <span>Naggering Bot</span>
-      <span class="badge">Simple • Annoying • Effective</span>
+      <span class="badge">Global • Faster • Annoying</span>
     </div>
     <a class="btn ghost" href="#get" aria-label="Jump to get started">Get Started</a>
   </header>
@@ -98,7 +113,7 @@
     <section class="hero">
       <div>
         <h1 class="title">Stop forgetting. Get nagged till it’s done.</h1>
-        <p class="subtitle">Set a task, choose how often to be pinged, reply <b>“done”</b> to shut it up. Fully customizable reminders. Works on Telegram.</p>
+        <p class="subtitle">Set a task, choose how often to be pinged, reply <b>“done”</b> to shut it up. Fully customizable reminders in your local timezone.</p>
         <div class="cta">
           <a class="btn primary" href="https://t.me/Naggering_Bot" target="_blank" rel="noreferrer noopener">Open Telegram Bot</a>
           <a class="btn ghost" href="#how">How it works</a>
@@ -106,11 +121,11 @@
       </div>
       <div class="hero-card" aria-hidden="true">
         <div class="screen">
-          <div class="bubble">/add — “Finish DS assignment by 9pm; remind every 20m”</div>
-          <div class="bubble me">Added: DS assignment · ⏰ every 20m · ⏳ until 9:00 PM</div>
-          <div class="bubble">Reminder: DS assignment · reply "done" to stop</div>
+          <div class="bubble">/q Buy milk, 5pm, 30m</div>
+          <div class="bubble me">Added: Buy milk · ⏰ every 30m · 🌍 5:00 PM (Local)</div>
+          <div class="bubble">Reminder: Buy milk · reply "done" to stop</div>
           <div class="bubble me">done</div>
-          <div class="bubble">Marked complete. Proud of you (barely).</div>
+          <div class="bubble">Marked complete. Barely made it.</div>
         </div>
       </div>
     </section>
@@ -118,37 +133,89 @@
     <section id="how" class="section">
       <div class="grid">
         <div class="card">
-          <h3>1. Add a task</h3>
-          <p class="muted">Use <code>/add</code> with title, deadline, and reminder frequency (15m, hourly, daily, or specific times).</p>
+          <h3>🌍 Global Nagger</h3>
+          <p class="muted">Now featuring full <b>Timezone Support</b>. Nagger Bot respects your "Do Not Disturb" hours and sets deadlines in your local time.</p>
         </div>
         <div class="card">
-          <h3>2. Get nagged</h3>
-          <p class="muted">It pings you on schedule. Ignoring it makes it try harder near the deadline.</p>
+          <h3>⚡ Lightning Fast</h3>
+          <p class="muted">Powered by a new v2 engine. Responses are instant, and the new <b>Smart Commands</b> let you type naturally (e.g., "tomorrow at 5pm").</p>
         </div>
         <div class="card">
-          <h3>3. Say “done”</h3>
-          <p class="muted">Reply <code>done</code> or tap Complete. It shuts up and marks the task finished.</p>
+          <h3>📢 Annoyingly Effective</h3>
+          <p class="muted">It pings you on schedule. Ignoring it makes it escalate locally. Just reply <code>done</code> to find peace.</p>
         </div>
       </div>
     </section>
 
     <section id="get" class="section">
-      <div class="card">
-        <h3 style="margin-top:0">Get Started</h3>
-        <p class="muted">Open the bot on Telegram and add your first task. That’s it.</p>
-        <div class="cta">
-          <a class="btn primary" href="https://t.me/Naggering_Bot" target="_blank" rel="noreferrer noopener">Launch @Naggering_Bot</a>
-          <button class="btn ghost" id="copyLinkBtn" type="button">Copy link</button>
+      <div class="grid" style="grid-template-columns: 2fr 1fr;">
+        <div class="card">
+          <h3 style="margin-top:0">Get Started</h3>
+          <p class="muted">Open the bot on Telegram, set your timezone, and add your first task. That’s it.</p>
+          <div class="cta">
+            <a class="btn primary" href="https://t.me/Naggering_Bot" target="_blank" rel="noreferrer noopener">Launch @Naggering_Bot</a>
+            <button class="btn ghost" id="copyLinkBtn" type="button">Copy link</button>
+          </div>
+        </div>
+        
+        <!-- Status Column -->
+        <div class="card">
+          <h3 style="margin-top:0">System Status</h3>
+          <div id="status-content">
+            <div class="status-header">
+              <span class="status-dot"></span>
+              <span>Loading...</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
   </main>
 
   <footer class="container">
-    Built by <b>Rishi</b>. No fluff — just results. If it annoys you, it’s working.
+    Built by <b>Rishi</b>. No fluff — just results. v2.1 (Lightning Nagger)
   </footer>
 
   <script>
+    // System Status Fetcher
+    (async function fetchStatus() {
+      const el = document.getElementById('status-content');
+      try {
+        const res = await fetch('https://naggeradmin.vercel.app/api/status');
+        if(!res.ok) throw new Error('Status Check Failed');
+        
+        const data = await res.json();
+        // {"status":"operational","message":"All systems operational","source":"auto","lastChecked":"..."}
+
+        const isOk = data.status === 'operational';
+        const date = new Date(data.lastChecked).toLocaleString(undefined, {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+
+        el.innerHTML = `
+          <div class="status-header">
+            <span class="status-dot ${isOk ? 'active' : 'error'}"></span>
+            <span style="text-transform:capitalize">${data.status}</span>
+          </div>
+          <div style="color:var(--muted); margin-bottom:8px">${data.message}</div>
+          <div class="status-meta">
+            <span>Checked: ${date}</span>
+            <span>•</span>
+            <span>${data.source}</span>
+          </div>
+        `;
+      } catch (e) {
+        console.error(e);
+        el.innerHTML = `
+          <div class="status-header">
+            <span class="status-dot error"></span>
+            <span>Unknown</span>
+          </div>
+          <div style="color:var(--muted)">Unable to verify system status.</div>
+        `;
+      }
+    })();
+
     // Copy bot link helper
     const link = 'https://t.me/Naggering_Bot';
     document.getElementById('copyLinkBtn')?.addEventListener('click', async () => {
