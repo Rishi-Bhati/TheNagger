@@ -77,30 +77,41 @@ def track_activity(command_name: str):
             if not user:
                 return await func(self, update, context, *args, **kwargs)
 
+            # Helper for safe background execution
+            def fire_and_forget(coro):
+                def callback(future):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Background task failed: {e}")
+                
+                task = asyncio.create_task(coro)
+                task.add_done_callback(callback)
+
             # 1. Update User Activity (Background Task)
             try:
                 username = f"@{user.username}" if user.username else None
                 full_name = user.full_name
-                # Fire and forget - don't await
-                asyncio.create_task(self.db.update_user_activity(user.id, username, full_name))
+                fire_and_forget(self.db.update_user_activity(user.id, username, full_name))
             except Exception as e:
-                logger.error(f"Failed to track user activity: {e}")
+                logger.error(f"Failed to initiate user activity tracking: {e}")
 
             # 2. Track Metrics & Catch Errors
             start_time = time.time()
             try:
+                # Await the actual command function
                 result = await func(self, update, context, *args, **kwargs)
                 
                 # Log success metric (Background Task)
                 process_time = (time.time() - start_time) * 1000
-                asyncio.create_task(self.db.log_bot_metric(user.id, command_name, process_time))
+                fire_and_forget(self.db.log_bot_metric(user.id, command_name, process_time))
                 
                 return result
 
             except Exception as e:
                 # Log failure metric (Background Task)
                 process_time = (time.time() - start_time) * 1000
-                asyncio.create_task(self.db.log_bot_metric(user.id, command_name, process_time))
+                fire_and_forget(self.db.log_bot_metric(user.id, command_name, process_time))
                 
                 # Filter out non-critical user errors
                 error_msg = str(e)
@@ -121,12 +132,9 @@ def track_activity(command_name: str):
                 if not is_ignored and not isinstance(e, ValueError): # Ignored value errors usually input related
                     logger.error(f"Critical error in {command_name}: {e}")
                     stack_trace = traceback.format_exc()
-                    await self.db.log_bot_error(user.id, type(e).__name__, error_msg, stack_trace)
                     
-                    # Notify user only if it's a critical failure
-                    if update.message:
-                         # Don't send for user errors, but for real crashes
-                         pass 
+                    # Log error (Background Task)
+                    fire_and_forget(self.db.log_bot_error(user.id, type(e).__name__, error_msg, stack_trace))
                 
                 raise e 
 
@@ -1216,8 +1224,14 @@ Task ID: `{user_task_id}`
     
     def run(self):
         """Start the bot"""
-        # Create application with increased timeout
-        request = HTTPXRequest(connection_pool_size=8, connect_timeout=20.0, read_timeout=20.0)
+        # Create application with increased timeout for slow networks
+        request = HTTPXRequest(
+            connection_pool_size=8, 
+            connect_timeout=30.0, 
+            read_timeout=30.0, 
+            write_timeout=30.0, 
+            pool_timeout=30.0
+        )
         self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).post_init(self.post_init).post_shutdown(self.post_shutdown).build()
         
         # Add conversation handler for adding tasks
