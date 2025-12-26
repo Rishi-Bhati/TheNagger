@@ -139,10 +139,20 @@ class ReminderScheduler:
             
             # Update last sent time
             import pytz
+            now_utc = datetime.now(pytz.UTC)
+            next_run = reminder.get_next_reminder_time()
+            
+            # Make naive for asyncpg TIMESTAMP column compatibility
+            now_utc_naive = now_utc.replace(tzinfo=None)
+            
+            next_run_naive = next_run
+            if next_run and next_run.tzinfo:
+                next_run_naive = next_run.astimezone(pytz.UTC).replace(tzinfo=None)
+            
             await self.db.update_reminder(
                 reminder.id,
-                last_sent=datetime.now(pytz.UTC),
-                next_reminder=reminder.get_next_reminder_time()
+                last_sent=now_utc_naive,
+                next_reminder=next_run_naive
             )
             
             # Log the reminder
