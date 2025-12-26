@@ -219,6 +219,7 @@ Use "natural language" for times!
         
         await update.message.reply_text(help_text, parse_mode='Markdown')
     
+    @track_activity("timezone")
     async def timezone_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Start timezone selection"""
         user_id = update.effective_user.id
@@ -344,6 +345,7 @@ Use "natural language" for times!
         return TIMEZONE_LOCATION
     
     # Task Management Commands
+    @track_activity("add_task")
     async def add_task_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Start the add task conversation"""
         user_id = update.effective_user.id
@@ -656,6 +658,7 @@ Use `/test {user_task_id}` to send a test reminder.
         message = format_task_list(tasks, user_timezone)
         await update.message.reply_text(message, parse_mode='Markdown')
     
+    @track_activity("mark_done")
     async def mark_done(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Mark a task as completed"""
         user_id = update.effective_user.id
@@ -708,6 +711,7 @@ Use `/test {user_task_id}` to send a test reminder.
             parse_mode='Markdown'
         )
     
+    @track_activity("delete_task")
     async def delete_task(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Delete a task"""
         user_id = update.effective_user.id
@@ -746,6 +750,7 @@ Use `/test {user_task_id}` to send a test reminder.
             parse_mode='Markdown'
         )
     
+    @track_activity("test_reminder")
     async def test_reminder(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a test reminder for a task"""
         user_id = update.effective_user.id
@@ -772,6 +777,7 @@ Use `/test {user_task_id}` to send a test reminder.
             
         await self.scheduler.send_test_reminder(user_id, actual_task_id)
     
+    @track_activity("clear_all")
     async def clear_all(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Clear all tasks for the user and reset their data"""
         user_id = update.effective_user.id
@@ -792,6 +798,7 @@ Use `/test {user_task_id}` to send a test reminder.
             parse_mode='Markdown'
         )
     
+    @track_activity("handle_clear_callback")
     async def handle_clear_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle clear confirmation callback"""
         query = update.callback_query
@@ -967,6 +974,7 @@ Task ID: `{user_task_id}`
         
         await update.message.reply_text(confirmation, parse_mode='Markdown')
     
+    @track_activity("cancel")
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Cancel the current conversation"""
         await update.message.reply_text(
@@ -978,7 +986,45 @@ Task ID: `{user_task_id}`
     
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log errors and notify user"""
-        logger.error(f"Update {update} caused error {context.error}")
+        error = context.error
+        logger.error(f"Update {update} caused error {error}")
+        
+        # Get user ID if available
+        user_id = None
+        if update and update.effective_user:
+            user_id = update.effective_user.id
+        
+        # Filter out non-critical user-caused errors
+        error_msg = str(error)
+        ignored_errors = [
+            "Message is not modified",
+            "Query is too old",
+            "Chat not found",
+            "Bot was blocked by the user",
+            "Invalid task ID",
+            "Invalid time format",
+            "Invalid deadline format",
+            "Task not found",
+            "Forbidden",
+            "Bad Request",
+            "Conflict"
+        ]
+        
+        is_user_error = any(ignored in error_msg for ignored in ignored_errors)
+        
+        # Log critical server-side errors to DB (fire-and-forget, non-blocking)
+        if not is_user_error and not isinstance(error, ValueError):
+            try:
+                stack_trace = traceback.format_exc()
+                # Fire and forget - don't await to avoid impacting response time
+                asyncio.create_task(self.db.log_bot_error(
+                    user_id, 
+                    type(error).__name__, 
+                    error_msg, 
+                    stack_trace
+                ))
+            except Exception:
+                pass  # Don't let logging failure affect the bot
         
         if update and update.effective_message:
             await update.effective_message.reply_text(
