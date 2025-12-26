@@ -344,7 +344,189 @@ Use "natural language" for times!
             
         return TIMEZONE_LOCATION
     
-    # Task Management Commands
+        return TIMEZONE_LOCATION
+    
+    # Edit Task Command
+    @track_activity("edit_task")
+    async def edit_task_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Start the edit task conversation"""
+        user_id = update.effective_user.id
+        
+        # Extract task ID from command
+        text = update.message.text.split()
+        if len(text) < 2:
+            await update.message.reply_text(
+                "❌ Please specify a task ID.\n"
+                "Example: `/edit 5`"
+            )
+            return ConversationHandler.END
+        
+        try:
+            user_task_id = int(text[1])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid task ID.")
+            return ConversationHandler.END
+        
+        # Get task
+        task = await self.db.get_task_by_id(user_id, user_task_id)
+        if not task:
+            await update.message.reply_text("❌ Task not found.")
+            return ConversationHandler.END
+        
+        if task['user_id'] != user_id:
+            await update.message.reply_text("❌ This task doesn't belong to you.")
+            return ConversationHandler.END
+            
+        context.user_data['edit_task_id'] = user_task_id
+        context.user_data['actual_task_id'] = task['id']
+        context.user_data['current_title'] = task['title']
+        context.user_data['current_frequency'] = f"{task['reminders'][0]['frequency_value']} {task['reminders'][0]['frequency_type']}" if task['reminders'] else "None"
+        
+        # Show edit options
+        keyboard = [
+            [
+                InlineKeyboardButton("📝 Title", callback_data="edit_title"),
+                InlineKeyboardButton("⏰ Deadline", callback_data="edit_deadline")
+            ],
+            [
+                InlineKeyboardButton("🔔 Frequency", callback_data="edit_frequency"),
+                InlineKeyboardButton("❌ Cancel", callback_data="edit_cancel")
+            ]
+        ]
+        
+        await update.message.reply_text(
+            f"✏️ *Editing Task {user_task_id}*\n"
+            f"*{escape_markdown(task['title'])}*\n\n"
+            "What would you like to change?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+        return EDIT_CHOICE
+
+    async def handle_edit_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle edit choice selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        choice = query.data
+        context.user_data['edit_field'] = choice
+        
+        if choice == "edit_cancel":
+            await query.edit_message_text("❌ Edit cancelled.")
+            context.user_data.clear()
+            return ConversationHandler.END
+            
+        elif choice == "edit_title":
+            await query.edit_message_text(
+                f"Current Title: {context.user_data['current_title']}\n\n"
+                "Enter new title:",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_edit_op")]])
+            )
+            return EDIT_VALUE
+            
+        elif choice == "edit_deadline":
+            await query.edit_message_text(
+                "Enter new deadline:\n"
+                "(e.g., 'tomorrow at 5pm', 'in 2 hours')",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_edit_op")]])
+            )
+            return EDIT_VALUE
+            
+        elif choice == "edit_frequency":
+            await query.edit_message_text(
+                f"Current Frequency: {context.user_data['current_frequency']}\n\n"
+                "Enter new frequency:\n"
+                "(e.g., '30m', '1h', 'daily')",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_edit_op")]])
+            )
+            return EDIT_VALUE
+            
+        return EDIT_CHOICE
+
+    async def handle_edit_cancel_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle cancel button during value entry"""
+        query = update.callback_query
+        await query.answer()
+        if query.data == "cancel_edit_op":
+             await query.edit_message_text("❌ Edit cancelled.")
+             context.user_data.clear()
+             return ConversationHandler.END
+        return EDIT_VALUE
+
+    async def handle_edit_value(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle new value input for edit"""
+        text = update.message.text
+        field = context.user_data.get('edit_field')
+        actual_task_id = context.user_data.get('actual_task_id')
+        user_id = update.effective_user.id
+        
+        if field == "edit_title":
+            await self.db.update_task(actual_task_id, title=text)
+            await update.message.reply_text("✅ Title updated successfully!")
+            
+        elif field == "edit_deadline":
+            user_timezone = await self.db.get_user_timezone(user_id)
+            deadline = parse_datetime(text, user_timezone)
+            
+            if not deadline:
+                await update.message.reply_text(
+                    "❌ Invalid deadline format. Please try again or /cancel."
+                )
+                return EDIT_VALUE
+                
+            now_utc = datetime.now(pytz.UTC).replace(tzinfo=None)
+            if deadline <= now_utc:
+                await update.message.reply_text(
+                     "❌ Deadline must be in the future. Please try again or /cancel."
+                )
+                return EDIT_VALUE
+                
+            await self.db.update_task(actual_task_id, deadline=deadline)
+            
+            # Reschedule reminders
+            user_task_id = context.user_data.get('edit_task_id')
+            await self.scheduler.schedule_task_reminders(user_id, user_task_id)
+            
+            await update.message.reply_text("✅ Deadline updated successfully!")
+            
+        elif field == "edit_frequency":
+            # Quick parse similar to quick_add
+            freq_shortcuts = {
+                '15m': ('minutes', 15), '30m': ('minutes', 30), '45m': ('minutes', 45),
+                '1h': ('hours', 1), '2h': ('hours', 2), 'daily': ('daily', 1)
+            }
+            freq_result = freq_shortcuts.get(text.lower())
+            if not freq_result:
+                freq_result = parse_frequency(text)
+                
+            if not freq_result:
+                await update.message.reply_text(
+                    "❌ Invalid frequency. Try '30m', '1h' or 'every 2 hours'."
+                )
+                return EDIT_VALUE
+                
+            freq_type, freq_value = freq_result
+            
+            # Update the first reminder found for this task
+            task = await self.db.get_task_by_id(user_id, context.user_data['edit_task_id'])
+            if task and task['reminders']:
+                reminder_id = task['reminders'][0]['id']
+                await self.db.update_reminder(
+                    reminder_id,
+                    frequency_type=freq_type,
+                    frequency_value=freq_value
+                )
+                
+                # Reschedule
+                user_task_id = context.user_data.get('edit_task_id')
+                await self.scheduler.schedule_task_reminders(user_id, user_task_id)
+                
+                await update.message.reply_text("✅ Frequency updated successfully!")
+            else:
+                await update.message.reply_text("❌ No existing reminder found to update.")
+
+        context.user_data.clear()
+        return ConversationHandler.END
     @track_activity("add_task")
     async def add_task_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Start the add task conversation"""
@@ -1083,6 +1265,20 @@ Task ID: `{user_task_id}`
         self.application.add_handler(CommandHandler("delete", self.delete_task))
         self.application.add_handler(CommandHandler("test", self.test_reminder))
         self.application.add_handler(CommandHandler("clear", self.clear_all))
+        
+        # Add conversation handler for editing tasks
+        edit_task_conv = ConversationHandler(
+            entry_points=[CommandHandler("edit", self.edit_task_start)],
+            states={
+                EDIT_CHOICE: [CallbackQueryHandler(self.handle_edit_choice, pattern="^edit_")],
+                EDIT_VALUE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_edit_value),
+                    CallbackQueryHandler(self.handle_edit_cancel_button, pattern="^cancel_edit_op")
+                ]
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel)]
+        )
+        self.application.add_handler(edit_task_conv)
         
         # Add callback handler for clear confirmation
         self.application.add_handler(CallbackQueryHandler(self.handle_clear_callback, pattern="^clear_"))
