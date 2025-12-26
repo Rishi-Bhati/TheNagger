@@ -41,7 +41,7 @@ class ReminderScheduler:
         """Main function to check and send due reminders"""
         try:
             # Get all pending reminders
-            pending_reminders = self.db.get_pending_reminders()
+            pending_reminders = await self.db.get_pending_reminders()
             
             for reminder_data in pending_reminders:
                 await self._process_reminder(reminder_data)
@@ -101,7 +101,7 @@ class ReminderScheduler:
             )
             
             # Get user timezone
-            user_timezone = self.db.get_user_timezone(reminder_data['user_id'])
+            user_timezone = await self.db.get_user_timezone(reminder_data['user_id'])
             
             # Check if reminder should be sent
             if reminder.should_send_reminder(task, user_timezone):
@@ -139,14 +139,14 @@ class ReminderScheduler:
             
             # Update last sent time
             import pytz
-            self.db.update_reminder(
+            await self.db.update_reminder(
                 reminder.id,
                 last_sent=datetime.now(pytz.UTC),
                 next_reminder=reminder.get_next_reminder_time()
             )
             
             # Log the reminder
-            self.db.log_reminder_sent(
+            await self.db.log_reminder_sent(
                 task.id,
                 'escalated' if is_escalated else 'normal'
             )
@@ -158,11 +158,11 @@ class ReminderScheduler:
         except Exception as e:
             logger.error(f"Error sending reminder: {e}")
     
-    def schedule_task_reminders(self, user_id: int, user_task_id: int):
+    async def schedule_task_reminders(self, user_id: int, user_task_id: int):
         """Schedule reminders for a specific task"""
         logger.info(f"Scheduling reminders for user {user_id}, task {user_task_id}")
         try:
-            task_data = self.db.get_task_by_id(user_id, user_task_id)
+            task_data = await self.db.get_task_by_id(user_id, user_task_id)
             if not task_data or not task_data['reminders']:
                 return
             
@@ -179,7 +179,7 @@ class ReminderScheduler:
         except Exception as e:
             logger.error(f"Error scheduling reminders for task {user_task_id}: {e}")
     
-    def cancel_task_reminders(self, task_id: int):
+    async def cancel_task_reminders(self, task_id: int):
         """Cancel reminders for a specific task"""
         if task_id in self.active_jobs:
             try:
@@ -192,7 +192,7 @@ class ReminderScheduler:
     async def send_test_reminder(self, user_id: int, user_task_id: int):
         """Send a test reminder for a task"""
         try:
-            task_data = self.db.get_task_by_id(user_id, user_task_id)
+            task_data = await self.db.get_task_by_id(user_id, user_task_id)
             if not task_data:
                 await self.bot.send_message(
                     chat_id=user_id,

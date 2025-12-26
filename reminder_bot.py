@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 import logging
 import asyncio
+import sys
+
+# Fix for Windows asyncio loop policy to avoid WinError 995
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from datetime import datetime, timedelta
 from threading import Thread
 from telegram import (
@@ -72,11 +77,12 @@ def track_activity(command_name: str):
             if not user:
                 return await func(self, update, context, *args, **kwargs)
 
-            # 1. Update User Activity
+            # 1. Update User Activity (Background Task)
             try:
                 username = f"@{user.username}" if user.username else None
                 full_name = user.full_name
-                self.db.update_user_activity(user.id, username, full_name)
+                # Fire and forget - don't await
+                asyncio.create_task(self.db.update_user_activity(user.id, username, full_name))
             except Exception as e:
                 logger.error(f"Failed to track user activity: {e}")
 
@@ -85,16 +91,16 @@ def track_activity(command_name: str):
             try:
                 result = await func(self, update, context, *args, **kwargs)
                 
-                # Log success metric
+                # Log success metric (Background Task)
                 process_time = (time.time() - start_time) * 1000
-                self.db.log_bot_metric(user.id, command_name, process_time)
+                asyncio.create_task(self.db.log_bot_metric(user.id, command_name, process_time))
                 
                 return result
 
             except Exception as e:
-                # Log failure metric (still counts as processed)
+                # Log failure metric (Background Task)
                 process_time = (time.time() - start_time) * 1000
-                self.db.log_bot_metric(user.id, command_name, process_time)
+                asyncio.create_task(self.db.log_bot_metric(user.id, command_name, process_time))
                 
                 # Filter out non-critical user errors
                 error_msg = str(e)
@@ -115,7 +121,7 @@ def track_activity(command_name: str):
                 if not is_ignored and not isinstance(e, ValueError): # Ignored value errors usually input related
                     logger.error(f"Critical error in {command_name}: {e}")
                     stack_trace = traceback.format_exc()
-                    self.db.log_bot_error(user.id, type(e).__name__, error_msg, stack_trace)
+                    await self.db.log_bot_error(user.id, type(e).__name__, error_msg, stack_trace)
                     
                     # Notify user only if it's a critical failure
                     if update.message:
@@ -137,9 +143,14 @@ class ReminderBot:
         
     async def post_init(self, application: Application) -> None:
         """Initialize bot after application is built"""
+        await self.db.connect()
         self.scheduler = ReminderScheduler(application.bot, self.db)
         await self.scheduler.start()
         logger.info("Bot initialized successfully")
+        
+    async def post_shutdown(self, application: Application) -> None:
+        """Cleanup on shutdown"""
+        await self.db.close()
     
     @track_activity("start")
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -211,7 +222,7 @@ Use "natural language" for times!
     async def timezone_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Start timezone selection"""
         user_id = update.effective_user.id
-        current_tz = self.db.get_user_timezone(user_id)
+        current_tz = await self.db.get_user_timezone(user_id)
         
         keyboard = [
             [KeyboardButton("📍 Send Location", request_location=True)],
@@ -238,7 +249,7 @@ Use "natural language" for times!
         if location:
             timezone_str = self.tf.timezone_at(lng=location.longitude, lat=location.latitude)
             if timezone_str:
-                self.db.set_user_timezone(user.id, timezone_str)
+                await self.db.set_user_timezone(user.id, timezone_str)
                 await update.message.reply_text(
                     f"✅ Timezone set to: `{timezone_str}`",
                     reply_markup=ReplyKeyboardRemove(),
@@ -318,7 +329,7 @@ Use "natural language" for times!
         elif data.startswith("tz_set_"):
             timezone_str = data.split("_", 2)[2]
             user_id = update.effective_user.id
-            self.db.set_user_timezone(user_id, timezone_str)
+            await self.db.set_user_timezone(user_id, timezone_str)
             
             await query.edit_message_text(
                 f"✅ Timezone set to: `{timezone_str}`",
@@ -336,7 +347,7 @@ Use "natural language" for times!
     async def add_task_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Start the add task conversation"""
         user_id = update.effective_user.id
-        timezone = self.db.get_user_timezone(user_id)
+        timezone = await self.db.get_user_timezone(user_id)
         
         if timezone == 'UTC':
             await update.message.reply_text(
@@ -388,7 +399,7 @@ Use "natural language" for times!
         """Handle task deadline input"""
         deadline_str = update.message.text
         user_id = update.effective_user.id
-        user_timezone = self.db.get_user_timezone(user_id)
+        user_timezone = await self.db.get_user_timezone(user_id)
         
         deadline = parse_datetime(deadline_str, user_timezone)
         
@@ -409,7 +420,7 @@ Use "natural language" for times!
         context.user_data['task_deadline'] = deadline
         
         # Create the task
-        user_task_id = self.db.add_task(
+        user_task_id = await self.db.add_task(
             user_id=user_id,
             title=context.user_data['task_title'],
             description=context.user_data['task_description'],
@@ -588,9 +599,9 @@ Use "natural language" for times!
         # Add reminder to database
         user_id = update.effective_user.id
         user_task_id = context.user_data['user_task_id']
-        actual_task_id = self.db.get_actual_task_id(user_id, user_task_id)
+        actual_task_id = await self.db.get_actual_task_id(user_id, user_task_id)
         
-        self.db.add_reminder(
+        await self.db.add_reminder(
             task_id=actual_task_id,
             frequency_type=context.user_data['reminder_frequency_type'],
             frequency_value=context.user_data['reminder_frequency_value'],
@@ -601,10 +612,10 @@ Use "natural language" for times!
         )
         
         # Schedule reminders
-        self.scheduler.schedule_task_reminders(user_id, user_task_id)
+        await self.scheduler.schedule_task_reminders(user_id, user_task_id)
         
         # Send confirmation
-        task = self.db.get_task_by_id(user_id, user_task_id)
+        task = await self.db.get_task_by_id(user_id, user_task_id)
         deadline_str = task['deadline'].strftime("%Y-%m-%d %H:%M")
         
         confirmation = f"""
@@ -632,8 +643,8 @@ Use `/test {user_task_id}` to send a test reminder.
     async def list_tasks(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """List all active tasks for the user"""
         user_id = update.effective_user.id
-        tasks = self.db.get_user_tasks(user_id)
-        user_timezone = self.db.get_user_timezone(user_id)
+        tasks = await self.db.get_user_tasks(user_id)
+        user_timezone = await self.db.get_user_timezone(user_id)
         
         if not tasks:
             await update.message.reply_text(
@@ -668,7 +679,7 @@ Use `/test {user_task_id}` to send a test reminder.
             return
         
         # Get task
-        task = self.db.get_task_by_id(user_id, user_task_id)
+        task = await self.db.get_task_by_id(user_id, user_task_id)
         if not task:
             await update.message.reply_text("❌ Task not found.")
             return
@@ -682,14 +693,14 @@ Use `/test {user_task_id}` to send a test reminder.
             return
         
         # Mark as completed
-        self.db.update_task(
+        await self.db.update_task(
             actual_task_id=task['id'],
             completed=True,
             completed_at=datetime.now()
         )
         
         # Cancel reminders
-        self.scheduler.cancel_task_reminders(task['id'])
+        await self.scheduler.cancel_task_reminders(task['id'])
         
         await update.message.reply_text(
             f"✅ Task *{escape_markdown(task['title'])}* marked as completed!\n\n"
@@ -717,7 +728,7 @@ Use `/test {user_task_id}` to send a test reminder.
             return
         
         # Get task
-        task = self.db.get_task_by_id(user_id, user_task_id)
+        task = await self.db.get_task_by_id(user_id, user_task_id)
         if not task:
             await update.message.reply_text("❌ Task not found.")
             return
@@ -727,8 +738,8 @@ Use `/test {user_task_id}` to send a test reminder.
             return
         
         # Delete task
-        self.db.delete_task(task['id'])
-        self.scheduler.cancel_task_reminders(task['id'])
+        await self.db.delete_task(task['id'])
+        await self.scheduler.cancel_task_reminders(task['id'])
         
         await update.message.reply_text(
             f"🗑️ Task *{escape_markdown(task['title'])}* has been deleted.",
@@ -754,7 +765,7 @@ Use `/test {user_task_id}` to send a test reminder.
             await update.message.reply_text("❌ Invalid task ID.")
             return
         
-        actual_task_id = self.db.get_actual_task_id(user_id, user_task_id)
+        actual_task_id = await self.db.get_actual_task_id(user_id, user_task_id)
         if not actual_task_id:
             await update.message.reply_text("❌ Task not found.")
             return
@@ -791,7 +802,7 @@ Use `/test {user_task_id}` to send a test reminder.
             
             # Use the new clear method
             try:
-                task_count = self.db.clear_all_user_data(user_id)
+                task_count = await self.db.clear_all_user_data(user_id)
                 
                 message = f"🗑️ *All Clear!*\n\n"
                 message += f"Deleted {task_count} tasks and their reminders.\n"
@@ -858,7 +869,7 @@ Use `/test {user_task_id}` to send a test reminder.
             return
         
         # Get user timezone
-        user_timezone = self.db.get_user_timezone(user_id)
+        user_timezone = await self.db.get_user_timezone(user_id)
         
         # Parse deadline
         deadline = parse_datetime(deadline_str, user_timezone)
@@ -905,17 +916,17 @@ Use `/test {user_task_id}` to send a test reminder.
         freq_type, freq_value = freq_result
         
         # Create the task
-        user_task_id = self.db.add_task(
+        user_task_id = await self.db.add_task(
             user_id=user_id,
             title=title,
             description="",  # Quick add doesn't include description
             deadline=deadline
         )
         
-        actual_task_id = self.db.get_actual_task_id(user_id, user_task_id)
+        actual_task_id = await self.db.get_actual_task_id(user_id, user_task_id)
         
         # Add reminder with default settings
-        self.db.add_reminder(
+        await self.db.add_reminder(
             task_id=actual_task_id,
             frequency_type=freq_type,
             frequency_value=freq_value,
@@ -926,7 +937,7 @@ Use `/test {user_task_id}` to send a test reminder.
         )
         
         # Schedule reminders
-        self.scheduler.schedule_task_reminders(user_id, user_task_id)
+        await self.scheduler.schedule_task_reminders(user_id, user_task_id)
         
         # Send confirmation (convert deadline back to user timezone for display)
         try:
@@ -979,7 +990,7 @@ Task ID: `{user_task_id}`
         """Start the bot"""
         # Create application with increased timeout
         request = HTTPXRequest(connection_pool_size=8, connect_timeout=20.0, read_timeout=20.0)
-        self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).post_init(self.post_init).build()
+        self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).post_init(self.post_init).post_shutdown(self.post_shutdown).build()
         
         # Add conversation handler for adding tasks
         add_task_conv = ConversationHandler(

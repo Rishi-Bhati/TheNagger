@@ -1,430 +1,374 @@
-import psycopg2
-from psycopg2.pool import ThreadedConnectionPool
-from psycopg2.extras import RealDictCursor
-from contextlib import contextmanager
-import json
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+import asyncpg
 import logging
 import os
+import json
+from datetime import datetime
+from typing import List, Dict, Optional, Tuple, Any
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self, db_url: Optional[str] = None):
-        """Initialize database connection with PostgreSQL"""
+        """Initialize database configuration"""
         self.db_url = db_url or os.environ.get("DATABASE_URL")
         if not self.db_url:
             raise ValueError("DATABASE_URL environment variable is required")
-        
-        # Initialize connection pool
-        # Min 1 connection, Max 10 connections (conservative for 512MB RAM)
-        self.pool = ThreadedConnectionPool(1, 10, self.db_url)
-        self.init_database()
-    
-    @contextmanager
-    def get_connection(self):
+        self.pool = None
+
+    async def connect(self):
+        """Initialize the connection pool"""
+        if not self.pool:
+            try:
+                # Optimized pool settings for low-resource environment (512MB RAM)
+                # min_size=1: Keep one connection alive
+                # max_size=10: Cap at 10 to avoid OOM, but enough for concurrency
+                # max_inactive_connection_lifetime: Close unused connections after 300s
+                # statement_cache_size=0: Disable prepared statements for PgBouncer compatibility
+                self.pool = await asyncpg.create_pool(
+                    self.db_url,
+                    min_size=1,
+                    max_size=10, 
+                    max_inactive_connection_lifetime=300,
+                    statement_cache_size=0
+                )
+                logger.info("Database connection pool created")
+                await self.init_database()
+            except Exception as e:
+                logger.error(f"Failed to create database pool: {e}")
+                raise
+
+    async def close(self):
+        """Close the connection pool"""
+        if self.pool:
+            await self.pool.close()
+            logger.info("Database connection pool closed")
+
+    @asynccontextmanager
+    async def acquire_connection(self):
         """Yield a database connection from the pool"""
-        conn = self.pool.getconn()
-        try:
+        if not self.pool:
+            await self.connect()
+        
+        async with self.pool.acquire() as conn:
             yield conn
-        finally:
-            self.pool.putconn(conn)
-    
-    def init_database(self):
+            
+    async def init_database(self):
         """Initialize database tables"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-        
-        try:
-            # Create tasks table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    title VARCHAR(255) NOT NULL,
-                    description TEXT,
-                    deadline TIMESTAMP NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    completed BOOLEAN DEFAULT FALSE,
-                    completed_at TIMESTAMP
-                )
-            ''')
-            
-            # Create reminders table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS reminders (
-                    id SERIAL PRIMARY KEY,
-                    task_id INTEGER NOT NULL,
-                    frequency_type VARCHAR(50) NOT NULL,
-                    frequency_value INTEGER NOT NULL,
-                    start_time TIME,
-                    end_time TIME,
-                    escalation_enabled BOOLEAN DEFAULT FALSE,
-                    escalation_threshold INTEGER DEFAULT 60,
-                    custom_messages JSONB,
-                    last_sent TIMESTAMP,
-                    next_reminder TIMESTAMP,
-                    FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
-                )
-            ''')
-            
-            # Create reminder_history table for tracking
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS reminder_history (
-                    id SERIAL PRIMARY KEY,
-                    task_id INTEGER NOT NULL,
-                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    message_type VARCHAR(50),
-                    FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
-                )
-            ''')
-            
-            # Create user_task_id_mapping table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS user_task_id_mapping (
-                    user_id BIGINT NOT NULL,
-                    user_task_id INTEGER NOT NULL,
-                    actual_task_id INTEGER NOT NULL UNIQUE,
-                    PRIMARY KEY (user_id, user_task_id),
-                    FOREIGN KEY (actual_task_id) REFERENCES tasks (id) ON DELETE CASCADE
-                )
-            ''')
-            
-            # Create indexes for better performance
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
-            ''')
-            
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
-            ''')
-            
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
-            ''')
-            
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_reminder_history_task_id ON reminder_history(task_id);
-            ''')
-            
-            # Create users table for settings and tracking
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    username VARCHAR(255),
-                    full_name VARCHAR(255),
-                    timezone VARCHAR(50) DEFAULT 'UTC',
-                    status VARCHAR(50) DEFAULT 'active',
-                    last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+        async with self.acquire_connection() as conn:
+            async with conn.transaction():
+                # tasks table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS tasks (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        title VARCHAR(255) NOT NULL,
+                        description TEXT,
+                        deadline TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        completed BOOLEAN DEFAULT FALSE,
+                        completed_at TIMESTAMP
+                    )
+                ''')
+                
+                # reminders table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS reminders (
+                        id SERIAL PRIMARY KEY,
+                        task_id INTEGER NOT NULL,
+                        frequency_type VARCHAR(50) NOT NULL,
+                        frequency_value INTEGER NOT NULL,
+                        start_time TIME,
+                        end_time TIME,
+                        escalation_enabled BOOLEAN DEFAULT FALSE,
+                        escalation_threshold INTEGER DEFAULT 60,
+                        custom_messages JSONB,
+                        last_sent TIMESTAMP,
+                        next_reminder TIMESTAMP,
+                        FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+                    )
+                ''')
+                
+                # reminder_history table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS reminder_history (
+                        id SERIAL PRIMARY KEY,
+                        task_id INTEGER NOT NULL,
+                        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        message_type VARCHAR(50),
+                        FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+                    )
+                ''')
+                
+                # user_task_id_mapping table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS user_task_id_mapping (
+                        user_id BIGINT NOT NULL,
+                        user_task_id INTEGER NOT NULL,
+                        actual_task_id INTEGER NOT NULL UNIQUE,
+                        PRIMARY KEY (user_id, user_task_id),
+                        FOREIGN KEY (actual_task_id) REFERENCES tasks (id) ON DELETE CASCADE
+                    )
+                ''')
+                
+                # users table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id BIGINT PRIMARY KEY,
+                        username VARCHAR(255),
+                        full_name VARCHAR(255),
+                        timezone VARCHAR(50) DEFAULT 'UTC',
+                        status VARCHAR(50) DEFAULT 'active',
+                        last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
 
-            # Create bot_errors table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS bot_errors (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    error_type VARCHAR(100),
-                    error_message TEXT,
-                    stack_trace TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+                # bot_errors table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS bot_errors (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT,
+                        error_type VARCHAR(100),
+                        error_message TEXT,
+                        stack_trace TEXT,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
 
-            # Create bot_metrics table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS bot_metrics (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    command VARCHAR(100),
-                    processing_time_ms FLOAT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Migration: Ensure new columns exist for existing installations
-            cursor.execute('''
-                ALTER TABLE users 
-                ADD COLUMN IF NOT EXISTS username VARCHAR(255),
-                ADD COLUMN IF NOT EXISTS full_name VARCHAR(255),
-                ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-            ''')
-            
-            conn.commit()
-            logger.info("Database tables initialized successfully")
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error initializing database: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def add_task(self, user_id: int, title: str, description: str, deadline: datetime) -> int:
+                # bot_metrics table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS bot_metrics (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT,
+                        command VARCHAR(100),
+                        processing_time_ms FLOAT,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                # Indexes for performance
+                await conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id)')
+                await conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline)')
+                await conn.execute('CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id)')
+                await conn.execute('CREATE INDEX IF NOT EXISTS idx_reminder_history_task_id ON reminder_history(task_id)')
+                
+                # Migration: Ensure new columns exist
+                try:
+                    await conn.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255)')
+                    await conn.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255)')
+                    await conn.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+                except Exception:
+                    pass # Ignore if already exists/fails safely
+
+        logger.info("Database tables initialized successfully")
+
+    async def add_task(self, user_id: int, title: str, description: str, deadline: datetime) -> int:
         """Add a new task and create a user-specific ID mapping."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-        
-        try:
-            # 1. Add the task to the main tasks table
-            cursor.execute('''
-                INSERT INTO tasks (user_id, title, description, deadline)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id
-            ''', (user_id, title, description, deadline))
-            actual_task_id = cursor.fetchone()[0]
-            
-            # 2. Find the next user_task_id for this user
-            cursor.execute(
-                "SELECT COALESCE(MAX(user_task_id), 0) + 1 FROM user_task_id_mapping WHERE user_id = %s",
-                (user_id,)
-            )
-            user_task_id = cursor.fetchone()[0]
-            
-            # 3. Create the mapping
-            cursor.execute('''
-                INSERT INTO user_task_id_mapping (user_id, user_task_id, actual_task_id)
-                VALUES (%s, %s, %s)
-            ''', (user_id, user_task_id, actual_task_id))
-            
-            conn.commit()
-            logger.info(f"Task added. UserID: {user_id}, UserTaskID: {user_task_id}, ActualTaskID: {actual_task_id}")
-            return user_task_id
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error adding task with mapping: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def add_reminder(self, task_id: int, frequency_type: str, frequency_value: int,
+        async with self.acquire_connection() as conn:
+            async with conn.transaction():
+                # 1. Add task
+                actual_task_id = await conn.fetchval('''
+                    INSERT INTO tasks (user_id, title, description, deadline)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id
+                ''', user_id, title, description, deadline)
+                
+                # 2. Get next user_task_id
+                user_task_id = await conn.fetchval(
+                    "SELECT COALESCE(MAX(user_task_id), 0) + 1 FROM user_task_id_mapping WHERE user_id = $1",
+                    user_id
+                )
+                
+                # 3. Create mapping
+                await conn.execute('''
+                    INSERT INTO user_task_id_mapping (user_id, user_task_id, actual_task_id)
+                    VALUES ($1, $2, $3)
+                ''', user_id, user_task_id, actual_task_id)
+                
+                logger.info(f"Task added using asyncpg: UserID {user_id}, ID {user_task_id}")
+                return user_task_id
+
+    async def add_reminder(self, task_id: int, frequency_type: str, frequency_value: int,
                     start_time: Optional[str] = None, end_time: Optional[str] = None,
                     escalation_enabled: bool = False, escalation_threshold: int = 60,
                     custom_messages: Optional[List[str]] = None) -> int:
         """Add a reminder configuration for a task"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        # Convert times to specific types if needed, string is usually fine for Postgres TIME type via asyncpg if format is correct
+        # Ensure custom_messages is json string or pass as list if we change column type to jsonb (asyncpg handles conversion automatically for jsonb if list is passed? usually needs json.dumps for text)
+        # However, our table def says JSONB. Asyncpg can encode dict/list to JSONB automatically if codec is set, but default behavior:
+        # We should pass string for JSONB or use set_type_codec. Safest is json.dumps.
         
-        try:
-            custom_messages_json = json.dumps(custom_messages) if custom_messages else None
-            
-            cursor.execute('''
+        custom_messages_json = json.dumps(custom_messages) if custom_messages else None
+        
+        # Parse time strings to time objects if necessary, but Postgres keeps them as Time.
+        # asyncpg prefers datetime.time objects for TIME columns.
+        def parse_time_str(t_str):
+            if not t_str: return None
+            try:
+                return datetime.strptime(t_str, '%H:%M').time()
+            except ValueError:
+                return None # Or handle error
+
+        start_time_obj = parse_time_str(start_time)
+        end_time_obj = parse_time_str(end_time)
+
+        async with self.acquire_connection() as conn:
+            reminder_id = await conn.fetchval('''
                 INSERT INTO reminders (task_id, frequency_type, frequency_value, 
                                      start_time, end_time, escalation_enabled, 
                                      escalation_threshold, custom_messages)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 RETURNING id
-            ''', (task_id, frequency_type, frequency_value, start_time, end_time,
-                  escalation_enabled, escalation_threshold, custom_messages_json))
-            
-            reminder_id = cursor.fetchone()[0]
-            conn.commit()
+            ''', task_id, frequency_type, frequency_value, start_time_obj, end_time_obj,
+                escalation_enabled, escalation_threshold, custom_messages_json)
             return reminder_id
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error adding reminder: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def get_user_tasks(self, user_id: int, include_completed: bool = False) -> List[Dict]:
-        """Get all tasks for a user with their user-facing IDs + reminders efficiently."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            try:
-                # 1. Get all tasks
-                query = '''
-                    SELECT t.*, m.user_task_id
-                    FROM tasks t
-                    JOIN user_task_id_mapping m ON t.id = m.actual_task_id
-                    WHERE t.user_id = %s
-                '''
-                if not include_completed:
-                    query += " AND t.completed = FALSE"
-                query += " ORDER BY t.deadline"
-                
-                cursor.execute(query, (user_id,))
-                tasks = [dict(row) for row in cursor.fetchall()]
-                
-                if not tasks:
-                    return []
 
-                # 2. Get all reminders for these tasks in ONE query
-                task_ids = [t['id'] for t in tasks]
-                if task_ids:
-                    cursor.execute('''
-                        SELECT * FROM reminders WHERE task_id = ANY(%s)
-                    ''', (task_ids,))
-                    
-                    all_reminders = cursor.fetchall()
-                    
-                    # Group reminders by task_id
-                    reminders_by_task = {}
-                    for r in all_reminders:
-                        r_dict = dict(r)
-                        if r_dict['custom_messages']:
-                            r_dict['custom_messages'] = r_dict['custom_messages']
-                        
-                        tid = r_dict['task_id']
-                        if tid not in reminders_by_task:
-                            reminders_by_task[tid] = []
-                        reminders_by_task[tid].append(r_dict)
-                    
-                    # Attach to tasks
-                    for task in tasks:
-                        task['reminders'] = reminders_by_task.get(task['id'], [])
-                else:
-                    for task in tasks:
-                        task['reminders'] = []
-                
-                return tasks
-            except Exception as e:
-                logger.error(f"Error getting user tasks: {e}")
-                raise
-            finally:
-                cursor.close()
-    
-    def get_task_by_id(self, user_id: int, user_task_id: int) -> Optional[Dict]:
-        """Get a specific task by its user-facing ID."""
-        logger.info(f"Getting task for user {user_id}, user_task_id {user_task_id}")
-        actual_task_id = self.get_actual_task_id(user_id, user_task_id)
-        if not actual_task_id:
-            return None
-            
-        with self.get_connection() as conn:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        try:
-            cursor.execute('''
+    async def get_user_tasks(self, user_id: int, include_completed: bool = False) -> List[Dict]:
+        """Get all tasks for a user efficiently."""
+        async with self.acquire_connection() as conn:
+            # 1. Get tasks
+            query = '''
                 SELECT t.*, m.user_task_id
                 FROM tasks t
                 JOIN user_task_id_mapping m ON t.id = m.actual_task_id
-                WHERE t.id = %s AND t.user_id = %s
-            ''', (actual_task_id, user_id))
-            row = cursor.fetchone()
+                WHERE t.user_id = $1
+            '''
+            if not include_completed:
+                query += " AND t.completed = FALSE"
+            query += " ORDER BY t.deadline"
+            
+            rows = await conn.fetch(query, user_id)
+            tasks = [dict(row) for row in rows]
+            
+            if not tasks:
+                return []
+                
+            task_ids = [t['id'] for t in tasks]
+            
+            # 2. Get reminders
+            reminders_rows = await conn.fetch('''
+                SELECT * FROM reminders WHERE task_id = ANY($1::int[])
+            ''', task_ids)
+            
+            reminders_by_task = {}
+            for r in reminders_rows:
+                r_dict = dict(r)
+                if r_dict['custom_messages']:
+                    try:
+                        r_dict['custom_messages'] = json.loads(r_dict['custom_messages'])
+                    except:
+                        pass
+                        
+                # Convert time objects back to string for consistency with app logic
+                if r_dict.get('start_time'):
+                    r_dict['start_time'] = r_dict['start_time'].strftime('%H:%M')
+                if r_dict.get('end_time'):
+                    r_dict['end_time'] = r_dict['end_time'].strftime('%H:%M')
+                    
+                tid = r_dict['task_id']
+                if tid not in reminders_by_task:
+                    reminders_by_task[tid] = []
+                reminders_by_task[tid].append(r_dict)
+            
+            for task in tasks:
+                task['reminders'] = reminders_by_task.get(task['id'], [])
+            
+            return tasks
+
+    async def get_task_by_id(self, user_id: int, user_task_id: int) -> Optional[Dict]:
+        """Get a specific task by its user-facing ID."""
+        actual_task_id = await self.get_actual_task_id(user_id, user_task_id)
+        if not actual_task_id:
+            return None
+            
+        async with self.acquire_connection() as conn:
+            row = await conn.fetchrow('''
+                SELECT t.*, m.user_task_id
+                FROM tasks t
+                JOIN user_task_id_mapping m ON t.id = m.actual_task_id
+                WHERE t.id = $1 AND t.user_id = $2
+            ''', actual_task_id, user_id)
             
             if row:
                 task = dict(row)
-                # Get reminders
-                cursor.execute('SELECT * FROM reminders WHERE task_id = %s', (actual_task_id,))
+                reminders_rows = await conn.fetch('SELECT * FROM reminders WHERE task_id = $1', actual_task_id)
                 reminders = []
-                for reminder_row in cursor.fetchall():
-                    reminder = dict(reminder_row)
-                    if reminder['custom_messages']:
-                        reminder['custom_messages'] = reminder['custom_messages']  # JSONB automatically parsed
-                    reminders.append(reminder)
+                for r in reminders_rows:
+                    rem = dict(r)
+                    if rem['custom_messages']:
+                         try:
+                            rem['custom_messages'] = json.loads(rem['custom_messages'])
+                         except:
+                            pass
+                    
+                    if rem.get('start_time'):
+                        rem['start_time'] = rem['start_time'].strftime('%H:%M')
+                    if rem.get('end_time'):
+                        rem['end_time'] = rem['end_time'].strftime('%H:%M')
+                        
+                    reminders.append(rem)
                 task['reminders'] = reminders
-                
                 return task
-            
             return None
-        except Exception as e:
-            logger.error(f"Error getting task by id: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def update_task(self, actual_task_id: int, **kwargs) -> bool:
-        """Update task fields using the actual task ID."""
-        logger.info(f"Updating task with actual_task_id {actual_task_id}")
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+
+    async def update_task(self, actual_task_id: int, **kwargs) -> bool:
+        """Update task fields."""
+        allowed_fields = ['title', 'description', 'deadline', 'completed', 'completed_at']
+        update_fields = []
+        values = []
         
-        try:
-            allowed_fields = ['title', 'description', 'deadline', 'completed', 'completed_at']
-            update_fields = []
-            values = []
-            
-            for field, value in kwargs.items():
-                if field in allowed_fields:
-                    update_fields.append(f"{field} = %s")
-                    values.append(value)
-            
-            if not update_fields:
-                return False
-            
-            values.append(actual_task_id)
-            query = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = %s"
-            
-            cursor.execute(query, values)
-            success = cursor.rowcount > 0
-            
-            conn.commit()
-            return success
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error updating task: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def delete_task(self, actual_task_id: int) -> bool:
-        """Delete a task and its reminders using the actual task ID."""
-        logger.info(f"Deleting task with actual_task_id {actual_task_id}")
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        for idx, (field, value) in enumerate(kwargs.items()):
+            if field in allowed_fields:
+                update_fields.append(f"{field} = ${idx + 2}")
+                values.append(value)
         
-        try:
-            # The mapping table will be cleared by the ON DELETE CASCADE foreign key
-            cursor.execute('DELETE FROM tasks WHERE id = %s', (actual_task_id,))
-            success = cursor.rowcount > 0
+        if not update_fields:
+            return False
             
-            conn.commit()
-            return success
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error deleting task: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def update_reminder(self, reminder_id: int, **kwargs) -> bool:
-        """Update reminder configuration"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        query = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = $1"
         
-        try:
-            allowed_fields = ['frequency_type', 'frequency_value', 'start_time', 
-                             'end_time', 'escalation_enabled', 'escalation_threshold', 
-                             'custom_messages', 'last_sent', 'next_reminder']
-            update_fields = []
-            values = []
-            
-            for field, value in kwargs.items():
-                if field in allowed_fields:
-                    if field == 'custom_messages' and value is not None:
-                        value = json.dumps(value)
-                    update_fields.append(f"{field} = %s")
-                    values.append(value)
-            
-            if not update_fields:
-                return False
-            
-            values.append(reminder_id)
-            query = f"UPDATE reminders SET {', '.join(update_fields)} WHERE id = %s"
-            
-            cursor.execute(query, values)
-            success = cursor.rowcount > 0
-            
-            conn.commit()
-            return success
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error updating reminder: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def get_pending_reminders(self) -> List[Dict]:
-        """Get all tasks that need reminders sent"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        async with self.acquire_connection() as conn:
+            result = await conn.execute(query, actual_task_id, *values)
+            # result string format is like "UPDATE 1"
+            return "UPDATE 0" not in result
+
+    async def delete_task(self, actual_task_id: int) -> bool:
+        """Delete a task."""
+        async with self.acquire_connection() as conn:
+            result = await conn.execute('DELETE FROM tasks WHERE id = $1', actual_task_id)
+            return "DELETE 0" not in result
+
+    async def update_reminder(self, reminder_id: int, **kwargs) -> bool:
+        """Update reminder configuration."""
+        allowed_fields = ['frequency_type', 'frequency_value', 'start_time', 
+                         'end_time', 'escalation_enabled', 'escalation_threshold', 
+                         'custom_messages', 'last_sent', 'next_reminder']
+        update_fields = []
+        values = []
         
-        try:
-            # Get all active tasks with their reminders
-            cursor.execute('''
+        i = 2
+        for field, value in kwargs.items():
+            if field in allowed_fields:
+                if field == 'custom_messages' and value is not None:
+                     value = json.dumps(value)
+                update_fields.append(f"{field} = ${i}")
+                values.append(value)
+                i += 1
+                
+        if not update_fields:
+            return False
+            
+        query = f"UPDATE reminders SET {', '.join(update_fields)} WHERE id = $1"
+        
+        async with self.acquire_connection() as conn:
+            result = await conn.execute(query, reminder_id, *values)
+            return "UPDATE 0" not in result
+
+    async def get_pending_reminders(self) -> List[Dict]:
+        """Get all pending reminders."""
+        async with self.acquire_connection() as conn:
+            rows = await conn.fetch('''
                 SELECT 
                     t.id as task_id,
                     m.user_task_id,
@@ -452,226 +396,113 @@ class Database:
             ''')
             
             reminders = []
-            for row in cursor.fetchall():
+            for row in rows:
                 reminder = dict(row)
                 if reminder['custom_messages']:
-                    reminder['custom_messages'] = reminder['custom_messages']  # JSONB automatically parsed
+                     try:
+                        reminder['custom_messages'] = json.loads(reminder['custom_messages'])
+                     except:
+                        pass
+                # Convert active times to datetime object for processing if needed or check types
+                # Postgres via asyncpg returns datetime.time for TIME columns. 
                 reminders.append(reminder)
-            
             return reminders
-        except Exception as e:
-            logger.error(f"Error getting pending reminders: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def log_reminder_sent(self, task_id: int, message_type: str = 'normal'):
+
+    async def log_reminder_sent(self, task_id: int, message_type: str = 'normal'):
         """Log that a reminder was sent"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-        
-        try:
-            cursor.execute('''
+        async with self.acquire_connection() as conn:
+            await conn.execute('''
                 INSERT INTO reminder_history (task_id, message_type)
-                VALUES (%s, %s)
-            ''', (task_id, message_type))
-            
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error logging reminder: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def get_reminder_history(self, task_id: int) -> List[Dict]:
-        """Get reminder history for a task"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        try:
-            cursor.execute('''
+                VALUES ($1, $2)
+            ''', task_id, message_type)
+
+    async def get_reminder_history(self, task_id: int) -> List[Dict]:
+        async with self.acquire_connection() as conn:
+             rows = await conn.fetch('''
                 SELECT * FROM reminder_history 
-                WHERE task_id = %s 
+                WHERE task_id = $1 
                 ORDER BY sent_at DESC
-            ''', (task_id,))
-            
-            history = [dict(row) for row in cursor.fetchall()]
-            return history
-        except Exception as e:
-            logger.error(f"Error getting reminder history: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def clear_all_user_data(self, user_id: int) -> int:
-        """Clear all data for a user by deleting their tasks, which cascades."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-        
-        try:
-            # Get all actual task IDs for the user
-            cursor.execute('''
+            ''', task_id)
+             return [dict(r) for r in rows]
+
+    async def clear_all_user_data(self, user_id: int) -> int:
+        """Clear all data for a user."""
+        async with self.acquire_connection() as conn:
+            # 1. Get task IDs
+            rows = await conn.fetch('''
                 SELECT t.id FROM tasks t
-                JOIN user_task_id_mapping m ON t.id = m.actual_task_id
-                WHERE t.user_id = %s
-            ''', (user_id,))
+                WHERE t.user_id = $1
+            ''', user_id)
+            tasks_to_delete = [r['id'] for r in rows]
             
-            tasks_to_delete = [row[0] for row in cursor.fetchall()]
-            count = len(tasks_to_delete)
-            
-            if count > 0:
-                # Deleting from tasks table will cascade to mapping, reminders, and history
-                cursor.execute('DELETE FROM tasks WHERE id = ANY(%s)', (tasks_to_delete,))
-            
-            conn.commit()
-            logger.info(f"Cleared {count} tasks for user {user_id}.")
-            return count
-            
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error clearing user data: {e}")
-            raise
-        finally:
-            cursor.close()
-    
-    def get_actual_task_id(self, user_id: int, user_task_id: int) -> Optional[int]:
-        """Translate a user-facing ID to an actual database ID."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-        
-        try:
-            cursor.execute(
-                "SELECT actual_task_id FROM user_task_id_mapping WHERE user_id = %s AND user_task_id = %s",
-                (user_id, user_task_id)
+            if not tasks_to_delete:
+                return 0
+                
+            # 2. Delete tasks (cascades)
+            # asyncpg requires ANY($1::int[]) for array matching
+            await conn.execute('DELETE FROM tasks WHERE id = ANY($1::int[])', tasks_to_delete)
+            return len(tasks_to_delete)
+
+    async def get_actual_task_id(self, user_id: int, user_task_id: int) -> Optional[int]:
+        """Translate user-facing ID to actual ID."""
+        async with self.acquire_connection() as conn:
+            val = await conn.fetchval(
+                "SELECT actual_task_id FROM user_task_id_mapping WHERE user_id = $1 AND user_task_id = $2",
+                user_id, user_task_id
             )
-            result = cursor.fetchone()
-            return result[0] if result else None
-        except Exception as e:
-            logger.error(f"Error getting actual task ID: {e}")
-            return None
-        finally:
-            cursor.close()
-    
-    def reset_user_task_ids(self, user_id: int) -> bool:
-        """
-        Alternative approach: Create a user-specific task ID mapping
-        This doesn't reset the actual database sequence but provides
-        user-friendly task IDs starting from 1
-        """
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-        
-        try:
-            # First, check if we need to create a user_task_mapping table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS user_task_mapping (
-                    user_id BIGINT NOT NULL,
-                    user_task_id INTEGER NOT NULL,
-                    actual_task_id INTEGER NOT NULL,
-                    PRIMARY KEY (user_id, user_task_id),
-                    FOREIGN KEY (actual_task_id) REFERENCES tasks(id) ON DELETE CASCADE
-                )
-            ''')
-            
-            # Clear existing mappings for this user
-            cursor.execute('DELETE FROM user_task_mapping WHERE user_id = %s', (user_id,))
-            
-            conn.commit()
-            return True
-            
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error resetting user task IDs: {e}")
-            return False
-        finally:
-            cursor.close()
-    def set_user_timezone(self, user_id: int, timezone: str) -> bool:
-        """Set the timezone for a user"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-        
-        try:
-            cursor.execute('''
+            return val
+
+    async def set_user_timezone(self, user_id: int, timezone: str) -> bool:
+        """Set user timezone."""
+        async with self.acquire_connection() as conn:
+            await conn.execute('''
                 INSERT INTO users (user_id, timezone)
-                VALUES (%s, %s)
+                VALUES ($1, $2)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET timezone = EXCLUDED.timezone
-            ''', (user_id, timezone))
-            
-            conn.commit()
+            ''', user_id, timezone)
             return True
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error setting user timezone: {e}")
-            return False
-        finally:
-            cursor.close()
-            
-    def get_user_timezone(self, user_id: int) -> str:
-        """Get the timezone for a user, default to UTC"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-        
-        try:
-            cursor.execute('SELECT timezone FROM users WHERE user_id = %s', (user_id,))
-            result = cursor.fetchone()
-            
-            if result:
-                return result[0]
-            return 'UTC'
-        except Exception as e:
-            logger.error(f"Error getting user timezone: {e}")
-            return 'UTC'
-        finally:
-            cursor.close()
 
-    def log_bot_error(self, user_id: Optional[int], error_type: str, error_message: str, stack_trace: str):
-        """Log a critical bot error"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+    async def get_user_timezone(self, user_id: int) -> str:
+        """Get user timezone."""
+        async with self.acquire_connection() as conn:
+            val = await conn.fetchval('SELECT timezone FROM users WHERE user_id = $1', user_id)
+            return val or 'UTC'
+
+    async def log_bot_error(self, user_id: Optional[int], error_type: str, error_message: str, stack_trace: str):
+        """Log critical bot error."""
         try:
-            cursor.execute('''
-                INSERT INTO bot_errors (user_id, error_type, error_message, stack_trace)
-                VALUES (%s, %s, %s, %s)
-            ''', (user_id, error_type, error_message, stack_trace))
-            conn.commit()
+            async with self.acquire_connection() as conn:
+                await conn.execute('''
+                    INSERT INTO bot_errors (user_id, error_type, error_message, stack_trace)
+                    VALUES ($1, $2, $3, $4)
+                ''', user_id, error_type, error_message, stack_trace)
         except Exception as e:
             logger.error(f"Failed to log bot error: {e}")
-            conn.rollback()
-        finally:
-            cursor.close()
 
-    def log_bot_metric(self, user_id: int, command: str, processing_time_ms: float):
-        """Log bot performance metric"""
-        # DB calls here are very fast now due to pooling, won't slow down the bot much
+    async def log_bot_metric(self, user_id: int, command: str, processing_time_ms: float):
+        """Log performance metric."""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
+            async with self.acquire_connection() as conn:
+                await conn.execute('''
                     INSERT INTO bot_metrics (user_id, command, processing_time_ms)
-                    VALUES (%s, %s, %s)
-                ''', (user_id, command, processing_time_ms))
-                conn.commit()
-                cursor.close()
-        except Exception as e:
-            logger.error(f"Failed to log bot metric: {e}")
+                    VALUES ($1, $2, $3)
+                ''', user_id, command, processing_time_ms)
+        except Exception:
+            pass # Non-critical
 
-    def update_user_activity(self, user_id: int, username: Optional[str] = None, full_name: Optional[str] = None):
-        """Update user's active status"""
+    async def update_user_activity(self, user_id: int, username: Optional[str] = None, full_name: Optional[str] = None):
+        """Update user activity timestamp."""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
+             async with self.acquire_connection() as conn:
+                await conn.execute('''
                     INSERT INTO users (user_id, username, full_name, last_active_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
                     ON CONFLICT (user_id) 
                     DO UPDATE SET 
                         last_active_at = CURRENT_TIMESTAMP,
                         username = COALESCE(EXCLUDED.username, users.username),
                         full_name = COALESCE(EXCLUDED.full_name, users.full_name)
-                ''', (user_id, username, full_name))
-                conn.commit()
-                cursor.close()
+                ''', user_id, username, full_name)
         except Exception as e:
             logger.error(f"Failed to update user activity: {e}")
