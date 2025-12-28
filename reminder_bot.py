@@ -365,7 +365,8 @@ Use "natural language" for times!
         if len(text) < 2:
             await update.message.reply_text(
                 "❌ Please specify a task ID.\n"
-                "Example: `/edit 5`"
+                "Example: `/edit 5`",
+                parse_mode='Markdown'
             )
             return ConversationHandler.END
         
@@ -720,8 +721,9 @@ Use "natural language" for times!
             
         elif query.data == "hours_custom":
             await query.edit_message_text(
-                "Please enter the time when reminders should PAUSE (24-hour format):\n" 
-                "Example: 09:00"
+                "Please enter the time when reminders should **START** for the day (24-hour format):\n" 
+                "Example: 09:00",
+                parse_mode='Markdown'
             )
             return REMINDER_START_TIME
         return REMINDER_START_TIME
@@ -737,8 +739,9 @@ Use "natural language" for times!
                 context.user_data['reminder_start_time'] = f"{hour:02d}:{minute:02d}"
                 
                 await update.message.reply_text(
-                    "Please enter the time when reminders should RESUME (24-hour format):\n"
-                    "Example: 22:00"
+                    "Please enter the time when reminders should **STOP** for the day (24-hour format):\n"
+                    "Example: 22:00",
+                    parse_mode='Markdown'
                 )
                 return REMINDER_END_TIME
             else:
@@ -861,7 +864,8 @@ Use `/test {user_task_id}` to send a test reminder.
             else:
                 await update.message.reply_text(
                     "❌ Please specify a task ID.\n"
-                    "Example: `/done 5`"
+                    "Example: `/done 5`",
+                    parse_mode='Markdown'
                 )
                 return
         except ValueError:
@@ -911,7 +915,8 @@ Use `/test {user_task_id}` to send a test reminder.
         if len(text) < 2:
             await update.message.reply_text(
                 "❌ Please specify a task ID.\n"
-                "Example: `/delete 5`"
+                "Example: `/delete 5`",
+                parse_mode='Markdown'
             )
             return
         
@@ -953,7 +958,8 @@ Use `/test {user_task_id}` to send a test reminder.
             else:
                 await update.message.reply_text(
                     "❌ Please specify a task ID.\n"
-                    "Example: `/test 5`"
+                    "Example: `/test 5`",
+                    parse_mode='Markdown'
                 )
                 return
         except ValueError:
