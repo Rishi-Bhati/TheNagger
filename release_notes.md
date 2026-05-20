@@ -87,3 +87,36 @@ A performance-focused release that makes Nagger Bot faster and more reliable tha
 *   Extended ignored error list for better error classification.
 
 ---
+
+## v3.0.0 - The "Serverless Nagger" Update
+*Release Date: May 20, 2026*
+
+The biggest architectural overhaul since launch. Nagger Bot is now **100% serverless** — no server, no bill, no downtime, no missed reminders.
+
+### What Changed (Architecture)
+*   **Runtime**: Migrated from Render (persistent Python process) → **Cloudflare Workers** (Python via Pyodide/WebAssembly)
+*   **Database access**: Ditched `asyncpg` raw TCP connections → **Supabase REST API** (HTTP-based, works inside WebAssembly)
+*   **Reminder scheduling**: Removed APScheduler (in-memory) → **Cloudflare Cron Triggers** (fires every minute, reads `last_sent` from DB)
+*   **Telegram updates**: Dropped long-polling → **Webhooks** (Telegram pushes updates to the Worker as HTTP POST)
+*   **Dependencies**: Eliminated all pip packages → **zero external dependencies**, 58 KB total deploy size (was 100+ MB)
+
+### New Features
+*   **`/add` is now the primary quick-add command** (was `/q`). Format: `/add Title, Deadline, Frequency`
+*   **`/d`** — new detailed step-by-step guided wizard for task creation
+*   **Overdue nagging** — if you miss a deadline without marking it done, the bot keeps nagging you with a 🚨 OVERDUE message until you `/done` it
+*   **Escalation** — reminders automatically double in frequency as the deadline approaches (within 60 min by default)
+*   **Timezone via GPS** — `/timezone` now lets you share your location for automatic timezone detection; falls back to manual text entry
+
+### Technical
+*   **Custom `cf_tz.py`**: Replaced `pytz`/`zoneinfo` with a dependency-free timezone resolver. Standard libraries read from `/usr/share/zoneinfo` which doesn't exist in WebAssembly.
+*   **Custom `cf_fetch.py`**: Wraps Cloudflare's built-in JS `fetch()` API, replacing `httpx`/`aiohttp` (which require OS-level sockets unavailable in WASM).
+*   **`conversation_state` table**: Multi-step wizard state is now persisted in Supabase (stateless Workers have no in-memory session).
+*   **Atomic task creation**: New Postgres stored function `create_task_with_mapping()` prevents race conditions on user-facing task IDs.
+*   **0.1-minute cron tolerance**: Cron timing drift guard prevents missed reminders at high frequencies (e.g. 1m).
+
+### Removed
+*   `python-telegram-bot`, `APScheduler`, `asyncpg`, `pytz`, `timezonefinder` — all replaced with lightweight custom modules
+*   `render.yaml`, `runtime.txt` — no longer needed
+*   `/q` command — merged into `/add` (same behaviour, simpler interface)
+
+---
