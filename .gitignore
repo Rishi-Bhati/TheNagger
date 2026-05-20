@@ -1,4 +1,6 @@
+# ──────────────────────────────────────────────
 # Python
+# ──────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,13 +9,13 @@ __pycache__/
 env/
 venv/
 ENV/
+.venv/
 build/
 develop-eggs/
 dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -22,32 +24,48 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.python-version
 
-# Environment variables
+# ──────────────────────────────────────────────
+# Secrets & Environment
+# ──────────────────────────────────────────────
 .env
 .env.local
 .env.*.local
 
-# Database
+# ──────────────────────────────────────────────
+# Database files (old Render/SQLite setup)
+# ──────────────────────────────────────────────
 *.db
 *.sqlite
 *.sqlite3
 
+# ──────────────────────────────────────────────
 # Logs
+# ──────────────────────────────────────────────
 *.log
 logs/
 
-# IDE
+# ──────────────────────────────────────────────
+# Cloudflare / Wrangler
+# ──────────────────────────────────────────────
+worker/.wrangler/
+worker/node_modules/
+worker/lib/
+
+# ──────────────────────────────────────────────
+# IDE & OS
+# ──────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Telegram bot specific
+# ──────────────────────────────────────────────
+# Bot runtime data
+# ──────────────────────────────────────────────
 bot_data/
 user_data/

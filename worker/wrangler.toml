@@ -1,0 +1,14 @@
+name = "nagger-bot"
+main = "src/entry.py"
+compatibility_date = "2026-05-20"
+compatibility_flags = ["python_workers", "disable_python_external_sdk"]
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+SUPABASE_URL = "https://YOUR_PROJECT_REF.supabase.co"  # replace with your Supabase project URL
+
+# Secrets — set via CLI (never put in this file):
+# npx wrangler secret put TELEGRAM_TOKEN
+# npx wrangler secret put SUPABASE_KEY
