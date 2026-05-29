@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+  <title>Nagger — Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+    /* Hide scrollbar for clean app feel */
+    ::-webkit-scrollbar { width: 0px; background: transparent; }
+    
+    .tab-btn {
+        transition: all 0.2s ease;
+        position: relative;
+    }
+    .tab-btn.active {
+        color: #22d3ee;
+        font-weight: 600;
+    }
+    .tab-btn.active::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background-color: #22d3ee;
+        border-radius: 2px 2px 0 0;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-200 h-screen flex flex-col" hx-headers='{"X-Requested-With": "htmx"}'>
+  
+  <!-- App Bar -->
+  <header class="bg-slate-800/80 backdrop-blur-lg border-b border-slate-700/50 sticky top-0 z-50 pt-safe">
+    <div class="max-w-3xl mx-auto px-4 h-16 flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-cyan-500/20 rounded-xl flex items-center justify-center text-cyan-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        </div>
+        <span class="font-bold text-lg tracking-tight text-white">Nagger</span>
+      </div>
+      <div class="flex gap-2">
+        <a href="/settings.html" class="w-10 h-10 rounded-full hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-slate-200 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 overflow-y-auto max-w-3xl w-full mx-auto p-4 sm:p-6 pb-24">
+
+    <!-- Add Task Form Container -->
+    <section>
+      <div hx-get="/api/partials/task-form"
+           hx-trigger="load"
+           hx-swap="innerHTML"
+           hx-credentials="include">
+        <!-- Skeleton Loader -->
+        <div class="animate-pulse bg-slate-800 rounded-2xl h-[280px] mb-8"></div>
+      </div>
+    </section>
+
+    <!-- Task Feed -->
+    <section>
+      <div class="flex border-b border-slate-700/50 mb-6" id="tabs">
+        <button class="tab-btn active flex-1 py-3 text-sm font-medium text-slate-400 focus:outline-none" 
+                hx-get="/api/partials/task-list?filter=active"
+                hx-target="#task-feed" hx-swap="innerHTML"
+                hx-credentials="include"
+                onclick="document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); this.classList.add('active');">
+          Active
+        </button>
+        <button class="tab-btn flex-1 py-3 text-sm font-medium text-slate-400 focus:outline-none" 
+                hx-get="/api/partials/task-list?filter=overdue"
+                hx-target="#task-feed" hx-swap="innerHTML"
+                hx-credentials="include"
+                onclick="document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); this.classList.add('active');">
+          Overdue <span class="ml-1 inline-flex items-center justify-center w-2 h-2 bg-red-500 rounded-full"></span>
+        </button>
+        <button class="tab-btn flex-1 py-3 text-sm font-medium text-slate-400 focus:outline-none" 
+                hx-get="/api/partials/task-list?filter=completed"
+                hx-target="#task-feed" hx-swap="innerHTML"
+                hx-credentials="include"
+                onclick="document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); this.classList.add('active');">
+          Done
+        </button>
+      </div>
+      
+      <div id="task-feed"
+           hx-get="/api/partials/task-list?filter=active"
+           hx-trigger="load"
+           hx-swap="innerHTML"
+           hx-credentials="include">
+        <!-- Skeleton Loader for tasks -->
+        <div class="animate-pulse space-y-4">
+            <div class="h-24 bg-slate-800 rounded-2xl"></div>
+            <div class="h-24 bg-slate-800 rounded-2xl"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Configuration for HTMX API calls
+    const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://127.0.0.1:8787'
+        : 'https://nagger-bot.rishibhati.workers.dev';
+        
+    document.body.addEventListener('htmx:configRequest', function(evt) {
+        if (evt.detail.path.startsWith('/api/')) {
+            evt.detail.path = API_BASE + evt.detail.path;
+        }
+    });
+
+    document.body.addEventListener('htmx:responseError', function(evt) {
+        if (evt.detail.xhr.status === 401) {
+            window.location.href = '/index.html';
+        } else {
+            console.error("API Error:", evt.detail.xhr.statusText);
+        }
+    });
+  </script>
+</body>
+</html>

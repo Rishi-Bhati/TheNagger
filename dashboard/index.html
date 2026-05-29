@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+  <title>Nagger — Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-200 min-h-screen flex flex-col items-center justify-center p-6">
+  
+  <div class="w-full max-w-sm bg-slate-800 rounded-[2rem] p-8 shadow-2xl border border-slate-700 text-center relative overflow-hidden">
+    <!-- Decorative background elements for Material You feel -->
+    <div class="absolute -top-24 -right-24 w-48 h-48 bg-cyan-500/20 rounded-full blur-3xl"></div>
+    <div class="absolute -bottom-24 -left-24 w-48 h-48 bg-indigo-500/20 rounded-full blur-3xl"></div>
+    
+    <div class="relative z-10">
+        <div class="w-20 h-20 bg-slate-700 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-inner">
+            <svg class="w-10 h-10 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+        </div>
+        
+        <h1 class="text-3xl font-bold text-white mb-2 tracking-tight">Nagger</h1>
+        <p class="text-slate-400 text-sm mb-10 leading-relaxed">Log in securely with Telegram to manage your reminders.</p>
+
+        <div class="bg-slate-900/50 rounded-2xl p-6 border border-slate-700/50 flex flex-col items-center justify-center min-h-[120px] shadow-inner">
+            <div id="login-container">
+                <!-- Telegram Login Widget -->
+                <script async src="https://telegram.org/js/telegram-widget.js?22"
+                        data-telegram-login="Naggering_Bot"
+                        data-size="large"
+                        data-radius="16"
+                        data-onauth="onTelegramAuth(user)"
+                        data-request-access="write">
+                </script>
+            </div>
+            <p id="loading-msg" class="text-sm text-cyan-400 font-medium hidden mt-4 flex items-center gap-2">
+                <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                Authenticating securely...
+            </p>
+        </div>
+    </div>
+  </div>
+
+  <p class="mt-8 text-xs text-slate-500 font-medium">Your data is secured with cryptographic session tokens.</p>
+
+  <script>
+    function onTelegramAuth(user) {
+      document.getElementById('login-container').classList.add('hidden');
+      document.getElementById('loading-msg').classList.remove('hidden');
+      
+      const params = new URLSearchParams(user);
+      // Replace with your actual worker URL when deployed, or use relative if same domain
+      // We will assume the worker is at the same domain or properly configured CORS
+      const apiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+            ? 'http://127.0.0.1:8787/api/auth/telegram'
+            : 'https://nagger-bot.rishibhati.workers.dev/api/auth/telegram'; // Note: You'll need to set the actual URL or use relative paths if on same domain
+      
+      // Since pages and workers are separate, we use the absolute URL. 
+      // The worker code was updated to handle CORS.
+      
+      fetch(apiUrl + '?' + params, {
+        credentials: 'include' // Crucial for receiving the Set-Cookie header
+      })
+      .then(r => { 
+          if (r.ok) {
+              window.location.href = '/app.html';
+          } else {
+              alert('Authentication failed. Please try again.');
+              window.location.reload();
+          }
+      })
+      .catch(e => {
+          console.error(e);
+          alert('Network error during authentication.');
+          window.location.reload();
+      });
+    }
+    
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+  </script>
+</body>
+</html>

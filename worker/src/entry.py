@@ -21,8 +21,15 @@ logger = logging.getLogger(__name__)
 class Default(WorkerEntrypoint):
 
     async def fetch(self, request):
-        """Handle incoming Telegram webhook POST requests."""
+        """Handle incoming Telegram webhook POST requests & Dashboard API requests."""
         env = self.env
+        url = request.url
+        path = "/" + url.split("/", 3)[-1].split("?")[0] if "/" in url else "/"
+        
+        # Dashboard API routes (Pre-flight OPTIONS or GET/POST/PATCH/DELETE)
+        if request.method == "OPTIONS" or path.startswith("/api/"):
+            from lib.web_router import route_api
+            return await route_api(request, path, env)
 
         if request.method == "GET":
             return Response("Nagger Bot is alive 🤖", status=200)

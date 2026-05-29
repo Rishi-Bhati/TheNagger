@@ -11,7 +11,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 from .cf_tz import get_timezone
-
+from .utils import escape_markdown
 logger = logging.getLogger(__name__)
 
 REMINDER_TEMPLATE = (
@@ -115,27 +115,28 @@ def _should_send(item: Dict, user_tz: str) -> bool:
     # We add a small 6-second tolerance (0.1 minutes) to protect against tiny cron execution offsets (e.g. 59.9s)
     tolerance = 0.1
 
+    # Convert base frequency to minutes
+    base_minutes = freq_value
+    if freq_type == "hours":
+        base_minutes *= 60
+    elif freq_type == "daily":
+        base_minutes *= 24 * 60
+
     if _is_overdue(item):
         # Keep nagging for overdue tasks at escalated frequency (or normal frequency if not escalated)
-        min_interval = max(1, freq_value // 2) if escalation_enabled else freq_value
-        if freq_value < 5:
-            min_interval = freq_value
+        min_interval = max(1, base_minutes // 2) if escalation_enabled else base_minutes
+        if base_minutes < 5:
+            min_interval = base_minutes
         return elapsed_minutes >= (min_interval - tolerance)
 
     if escalation_enabled and _is_escalated(item):
-        min_interval = max(1, freq_value // 2)
-        if freq_value < 5:
-            min_interval = freq_value
+        min_interval = max(1, base_minutes // 2)
+        if base_minutes < 5:
+            min_interval = base_minutes
         return elapsed_minutes >= (min_interval - tolerance)
 
     # Normal frequency
-    if freq_type == "minutes":
-        return elapsed_minutes >= (freq_value - tolerance)
-    elif freq_type == "hours":
-        return elapsed_minutes >= (freq_value * 60 - tolerance)
-    elif freq_type == "daily":
-        return elapsed_minutes >= (24 * 60 - tolerance)
-    return elapsed_minutes >= (freq_value - tolerance)
+    return elapsed_minutes >= (base_minutes - tolerance)
 
 
 def _is_overdue(item: Dict) -> bool:
@@ -182,10 +183,13 @@ def _build_message(item: Dict) -> str:
     deadline = _parse_dt(item.get("deadline"))
     deadline_str = deadline.strftime("%Y-%m-%d %H:%M") if deadline else "unknown"
 
+    title = escape_markdown(item["title"])
+    desc = escape_markdown(item.get("description") or "")
+
     if _is_overdue(item):
         return OVERDUE_TEMPLATE.format(
-            title=item["title"],
-            description=item.get("description") or "",
+            title=title,
+            description=desc,
             deadline=deadline_str,
             task_id=item["user_task_id"],
         )
@@ -200,8 +204,8 @@ def _build_message(item: Dict) -> str:
         h, m = divmod(minutes_left, 60)
         time_left = f"{h}h {m}m" if h else f"{m}m"
         return ESCALATION_TEMPLATE.format(
-            title=item["title"],
-            description=item.get("description") or "",
+            title=title,
+            description=desc,
             deadline=deadline_str,
             time_left=time_left,
             task_id=item["user_task_id"],
@@ -212,15 +216,15 @@ def _build_message(item: Dict) -> str:
         last_sent = item.get("last_sent") or ""
         idx = hash(str(last_sent)) % len(custom)
         return (
-            f"🔔 *Reminder*: {item['title']}\n\n"
-            f"{custom[idx]}\n\n"
+            f"🔔 *Reminder*: {title}\n\n"
+            f"{escape_markdown(custom[idx])}\n\n"
             f"⏰ Deadline: {deadline_str}\n\n"
             f"_Reply /done {item['user_task_id']} to mark as complete_"
         )
 
     return REMINDER_TEMPLATE.format(
-        title=item["title"],
-        description=item.get("description") or "",
+        title=title,
+        description=desc,
         deadline=deadline_str,
         task_id=item["user_task_id"],
     )
