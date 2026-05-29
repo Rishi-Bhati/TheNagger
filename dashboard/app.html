@@ -109,7 +109,7 @@
     // Configuration for HTMX API calls
     const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
         ? 'http://127.0.0.1:8787'
-        : 'https://nagger-bot.rishibhati.workers.dev';
+        : 'https://nagger-bot.nagger.workers.dev';
         
     document.body.addEventListener('htmx:configRequest', function(evt) {
         if (evt.detail.path.startsWith('/api/')) {

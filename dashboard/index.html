@@ -55,17 +55,12 @@
       document.getElementById('loading-msg').classList.remove('hidden');
       
       const params = new URLSearchParams(user);
-      // Replace with your actual worker URL when deployed, or use relative if same domain
-      // We will assume the worker is at the same domain or properly configured CORS
       const apiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
             ? 'http://127.0.0.1:8787/api/auth/telegram'
-            : 'https://nagger-bot.rishibhati.workers.dev/api/auth/telegram'; // Note: You'll need to set the actual URL or use relative paths if on same domain
-      
-      // Since pages and workers are separate, we use the absolute URL. 
-      // The worker code was updated to handle CORS.
+            : 'https://nagger-bot.nagger.workers.dev/api/auth/telegram'; 
       
       fetch(apiUrl + '?' + params, {
-        credentials: 'include' // Crucial for receiving the Set-Cookie header
+        credentials: 'include'
       })
       .then(r => { 
           if (r.ok) {
